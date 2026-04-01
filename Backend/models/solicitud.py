@@ -1,18 +1,18 @@
-from pydantic import BaseModel
+from sqlalchemy import Column, Integer, String, Float, DateTime
 from datetime import datetime
-from typing import Optional
+from database import Base
 
-class SolicitudDiagnostico(BaseModel):
-    id_solicitud: str
-    id_usuario: str
-    fecha: datetime = datetime.now()
-    
-    # Datos generados por la IA de Gemini
-    diagnostico_ia: str  # Ejemplo: "Rotura de caño termofusión en pared"
-    nivel_urgencia: str   # "Baja", "Media", "Alta/Emergencia"
-    presupuesto_estimado_min: float
-    presupuesto_estimado_max: float
-    
-    # Datos para el plomero
-    fotos_adjuntas: list[str] = []
-    estado: str = "Pendiente"  # Pendiente, Aceptada, Finalizada
+class Solicitud(Base):
+    __tablename__ = "solicitudes"
+
+    id_solicitud = Column(Integer, primary_key=True, index=True)
+    id_usuario = Column(Integer)
+    descripcion_raw = Column(String)
+    imagen_path = Column(String, nullable=True)
+    video_path = Column(String, nullable=True)
+    etiqueta_ia = Column(String, nullable=True)
+    urgencia_ia = Column(String, nullable=True)
+    presupuesto_min = Column(Float, nullable=True)
+    presupuesto_max = Column(Float, nullable=True)
+    estado = Column(String, default="pendiente")
+    fecha = Column(DateTime, default=datetime.now)
