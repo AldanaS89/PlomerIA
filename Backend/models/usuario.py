@@ -1,11 +1,15 @@
-from pydantic import BaseModel
-from typing import Optional
+from sqlalchemy import Column, Integer, String, Float
+from database import Base
 
-class Usuario(BaseModel):
-    nombre: str
-    dni: str
-    direccion: str
-    # Estos dos son para que la app sepa dónde está el usuario en el mapa
-    latitud: float
-    longitud: float
-    telefono: Optional[str] = None
+class Usuario(Base):
+    __tablename__ = "usuarios"
+
+    id_usuario = Column(Integer, primary_key=True, index=True)
+    nombre = Column(String)
+    apellido = Column(String)
+    direccion = Column(String)
+    telefono = Column(String)
+    email = Column(String, unique=True, index=True)
+    password_hash = Column(String) # Usaremos bcrypt aquí
+    latitud = Column(Float)
+    longitud = Column(Float)
