@@ -1,11 +1,12 @@
 from fastapi import FastAPI
+from database import engine, Base
+import models # Esto carga el __init__.py con todos los modelos
 
-app = FastAPI()
+app = FastAPI(title="PlomerIA API")
+
+# Crea las tablas si no existen
+Base.metadata.create_all(bind=engine)
 
 @app.get("/")
 def inicio():
-    return {
-        "estado": "¡Funcionando desde San José City!",
-        "proyecto": "PlomerIA - Grupo 3",
-        "mensaje": "Si ves esto, Aldana, el setup fue un éxito total"
-    }
+    return {"mensaje": "Servidor de PlomerIA activo y Base de Datos vinculada"}
