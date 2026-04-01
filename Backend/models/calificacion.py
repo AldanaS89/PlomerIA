@@ -2,12 +2,13 @@ from sqlalchemy import Column, Integer, String, DateTime
 from datetime import datetime
 from database import Base
 
-class Asignacion(Base):
-    __tablename__ = "asignaciones"
+class Calificacion(Base):
+    __tablename__ = "calificaciones"
 
-    id_asignacion = Column(Integer, primary_key=True, index=True)
-    id_solicitud = Column(Integer)
+    id_calificacion = Column(Integer, primary_key=True, index=True)
+    id_asignacion = Column(Integer)
+    id_cliente = Column(Integer)
     id_plomero = Column(Integer)
-    estado = Column(String, default="pendiente")
-    fecha_aceptacion = Column(DateTime, nullable=True)
-    fecha_completado = Column(DateTime, nullable=True)
+    estrellas = Column(Integer)
+    comentario = Column(String, nullable=True)
+    fecha_resenia = Column(DateTime, default=datetime.now)
