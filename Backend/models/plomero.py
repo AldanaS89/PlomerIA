@@ -1,14 +1,18 @@
-from pydantic import BaseModel
-from typing import Optional
+from sqlalchemy import Column, Integer, String, Float, Boolean
+from database import Base
 
-class Plomero(BaseModel):
-    id: int
-    nombre: str
-    especialidad: str  # Ejemplo: "Gasista", "Destapaciones"
-    atiende_urgencias: bool  # Esto es el "Sí" o "No" (True/False)
-    genero: str
-    # Ubicación para que el vecino de Almirante Brown lo encuentre
-    latitud: float
-    longitud: float
-    experiencia_anios: Optional[int] = None
-    puntuacion: float = 0.0
+class Plomero(Base):
+    __tablename__ = "plomeros"
+
+    id_plomero = Column(Integer, primary_key=True, index=True)
+    nombre = Column(String)
+    apellido = Column(String)
+    especialidad = Column(String)
+    genero = Column(String)
+    localidad = Column(String)
+    atiende_urgencias = Column(Boolean, default=False)
+    disponible_ahora = Column(Boolean, default=True)
+    puntuacion = Column(Float, default=0.0)
+    total_trabajos = Column(Integer, default=0)
+    matricula_gas = Column(Boolean, default=False)
+    password_hash = Column(String)
