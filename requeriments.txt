@@ -1,0 +1,13 @@
+# Servidor y API (Backend)
+fastapi
+uvicorn
+sqlalchemy
+
+# Inteligencia Artificial y Mapas
+google-generativeai
+geopy
+
+# Interfaz de la App (Frontend - Kivy)
+kivy
+kivymd
+requests
