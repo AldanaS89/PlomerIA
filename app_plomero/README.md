@@ -1,21 +1,34 @@
 # App Plomero - PlomerIA 🛠️
 
-Esta carpeta contiene el código fuente de la aplicación móvil diseñada para los profesionales de la plomería. Desarrollada con **Kivy + KivyMD**.
+App móvil para profesionales desarrollada en React Native con Expo.
 
-## 🚀 Funcionalidades Principales
-Según el alcance de nuestro MVP, esta aplicación permite:
-* **Perfil Profesional**: Registro con especialidades (Gasista, Destapaciones, etc.) y zona de cobertura.
-* **Notificaciones de Trabajo**: Recepción de alertas en tiempo real basadas en la cercanía (radio de 5 km).
-* **Gestión de Solicitudes**: Botones para Aceptar o Rechazar trabajos de emergencia o programados.
-* **Agenda de Turnos**: Visualización de los trabajos confirmados por los clientes.
-* **Historial de Servicios**: Registro de trabajos realizados y calificaciones recibidas.
+## 🚀 Funcionalidades del MVP
+
+- Registro y login de plomeros
+- Activar y desactivar disponibilidad
+- Recibir notificaciones de nuevos trabajos
+- Ver diagnóstico de la IA, dirección y presupuesto estimado
+- Aceptar o rechazar solicitudes con countdown de 5 minutos
+- Gestión de agenda para trabajos no urgentes
+- Marcar trabajo como completado
+- Historial de trabajos realizados
 
 ## 📁 Estructura de la Carpeta
-* `main.py`: Archivo principal de la aplicación del plomero.
-* `/screens`: Pantallas de agenda, notificaciones y perfil.
-* `/assets`: Iconos y recursos visuales específicos para el profesional.
-* `buildozer.spec`: Configuración para la compilación del APK.
+
+- `App.js` — punto de entrada de la aplicación
+- `app.json` — configuración de la app
+- `package.json` — dependencias del proyecto
+- `/screens` — una pantalla por archivo
+- `/assets` — logos, íconos y recursos visuales
 
 ## 🛠️ Tecnologías Utilizadas
-* **Lenguaje**: Python 3.11.
-* **Interfaz**: Kivy 2.x + KivyMD.
+
+- React Native con Expo
+- JavaScript
+- Conexión al backend via API REST (FastAPI)
+
+## Para correr la app
+
+1. `npm install`
+2. `npx expo start`
+3. Escanear el QR con Expo Go en el celular
