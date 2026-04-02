@@ -7,6 +7,8 @@ class Plomero(Base):
     id_plomero = Column(Integer, primary_key=True, index=True)
     nombre = Column(String)
     apellido = Column(String)
+    email = Column(String, unique=True, index=True) 
+    telefono = Column(String)                         
     especialidad = Column(String)
     genero = Column(String)
     localidad = Column(String)

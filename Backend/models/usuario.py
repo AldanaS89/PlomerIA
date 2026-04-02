@@ -1,4 +1,5 @@
-from sqlalchemy import Column, Integer, String, Float
+from sqlalchemy import Column, Integer, String, Float, DateTime
+from datetime import datetime
 from database import Base
 
 class Usuario(Base):
@@ -10,6 +11,7 @@ class Usuario(Base):
     direccion = Column(String)
     telefono = Column(String)
     email = Column(String, unique=True, index=True)
-    password_hash = Column(String) # Usaremos bcrypt aquí
+    password_hash = Column(String)
     latitud = Column(Float)
     longitud = Column(Float)
+    fecha_registro = Column(DateTime, default=datetime.now)  
