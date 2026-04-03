@@ -1,6 +1,6 @@
 from sqlalchemy import Column, Integer, String, DateTime
 from datetime import datetime
-from database import Base
+from Backend.database import Base
 
 class Asignacion(Base):
     __tablename__ = "asignaciones"

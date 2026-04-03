@@ -1,6 +1,6 @@
 from sqlalchemy import Column, Integer, String, Float, Boolean, DateTime
 from datetime import datetime
-from database import Base
+from Backend.database import Base
 
 class Plomero(Base):
     __tablename__ = "plomeros"

@@ -1,6 +1,6 @@
 from fastapi import FastAPI
-from database import engine, Base
-import models # Esto carga el __init__.py con todos los modelos
+from Backend.database import engine, Base
+from Backend import models
 
 app = FastAPI(title="PlomerIA API")
 
