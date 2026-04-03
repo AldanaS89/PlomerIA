@@ -51,7 +51,7 @@ PlomerIA/
 
 ## 📊 Diagrama de Clases
 
-![Diagrama de Clases](docs/uml_clases.png)
+👉 [Ver diagrama de clases](docs/diagramas/uml_clases.md)
 
 ---
 
