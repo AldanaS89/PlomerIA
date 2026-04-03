@@ -18,8 +18,8 @@ Base.metadata.create_all(bind=engine)
 
 # Registra los grupos de rutas, "suma todas estas rutas al servidor principal"
 app.include_router(auth.router)
-# app.include_router(usuarios.router)
-# app.include_router(plomeros.router)
+app.include_router(usuarios.router)
+app.include_router(plomeros.router)
 # app.include_router(solicitudes.router)
 # app.include_router(calificaciones.router)
 

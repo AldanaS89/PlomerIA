@@ -13,3 +13,6 @@ def crear_usuario(db: Session, usuario: Usuario) -> Usuario:
     db.commit()
     db.refresh(usuario)
     return usuario
+
+def listar_todos(db: Session) -> list[Usuario]:
+    return db.query(Usuario).all()
