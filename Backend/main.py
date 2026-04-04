@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from database import engine, Base
 import models # Esto carga el __init__.py con todos los modelos
 from fastapi.middleware.cors import CORSMiddleware
-from routers import auth, usuarios, plomeros, solicitudes, calificaciones
+from routers import auth, usuarios, plomeros, calificaciones
 app = FastAPI(title="PlomerIA API")
 
 #Configuracion de cors para comunicacion con el front
@@ -20,7 +20,7 @@ Base.metadata.create_all(bind=engine)
 app.include_router(auth.router)
 app.include_router(usuarios.router)
 app.include_router(plomeros.router)
-# app.include_router(solicitudes.router)
+#app.include_router(solicitudes.router)
 # app.include_router(calificaciones.router)
 
 @app.get("/")

@@ -25,6 +25,17 @@ class PlomeroResponse(BaseModel):
     disponible_ahora:  bool
     puntuacion:        float
     total_trabajos:    int
-
+# Le dice a Pydantic que puede convertir un objeto SQLAlchemy directamente a este schema. Sin eso, 
+#PlomeroResponse.model_validate(plomero) no funcionaría.
     class Config:
         from_attributes = True
+        
+class PlomeroLoginRequest(BaseModel):
+    email:    EmailStr
+    password: str
+
+class PlomeroLoginResponse(BaseModel):
+    access_token: str
+    token_type:   str
+    id_plomero:   int
+    nombre:       str

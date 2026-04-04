@@ -19,10 +19,22 @@ def _hashear(password: str) -> str:
 def _verificar(password: str, hashed: str) -> bool:
     return pwd_context.verify(password, hashed)
 
-def _crear_token(id_usuario: int) -> str:
+# def _crear_token(id_usuario: int) -> str:
+#     expiracion = datetime.utcnow() + timedelta(hours=24)
+#     return jwt.encode(
+#         {"sub": str(id_usuario), "exp": expiracion},
+#         SECRET_KEY,
+#         algorithm=ALGORITHM
+#     )
+def _crear_token(id_usuario: int, tipo: str) -> str:
     expiracion = datetime.utcnow() + timedelta(hours=24)
+
     return jwt.encode(
-        {"sub": str(id_usuario), "exp": expiracion},
+        {
+            "sub": str(id_usuario),
+            "tipo": tipo,
+            "exp": expiracion
+        },
         SECRET_KEY,
         algorithm=ALGORITHM
     )
@@ -51,7 +63,7 @@ def login(db: Session, datos: LoginRequest) -> LoginResponse:
     if not usuario or not _verificar(datos.password, usuario.password_hash):
         raise HTTPException(status_code=401, detail="Email o contraseña incorrectos")
 
-    token = _crear_token(usuario.id_usuario)
+    token = _crear_token(usuario.id_usuario, "usuario")
 
     return LoginResponse(
         access_token = token,
