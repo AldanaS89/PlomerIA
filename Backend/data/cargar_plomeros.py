@@ -9,7 +9,7 @@ from models.plomero import Plomero
 from passlib.context import CryptContext
 
 Base.metadata.create_all(bind=engine)
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+pwd_context = CryptContext(schemes=["pbkdf2_sha256"], deprecated="auto")
 
 # Mapeo de especialidades del JSON al formato del sistema
 ESPECIALIDAD_MAP = {
