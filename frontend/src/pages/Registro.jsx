@@ -11,13 +11,10 @@ export default function Registro({ onRegistrado }) {
     email: '',
     password: '',
     telefono: '',
-    direccion: '',
-    latitud: -34.8,
-    longitud: -58.4,
+    localidad: '',
     // plomero
     especialidad: 'PLOMERIA_GENERAL',
     genero: 'M',
-    localidad: '',
     atiende_urgencias: false,
     matricula_gas: false,
   })
@@ -41,10 +38,8 @@ export default function Registro({ onRegistrado }) {
           apellido: form.apellido,
           email: form.email,
           password: form.password,
-          direccion: form.direccion,
+          localidad: form.localidad,
           telefono: form.telefono,
-          latitud: Number(form.latitud),
-          longitud: Number(form.longitud),
         })
       } else {
         await api.registroPlomero({
@@ -102,24 +97,12 @@ export default function Registro({ onRegistrado }) {
         <input value={form.telefono} onChange={(e) => upd('telefono', e.target.value)} required />
       </div>
 
-      {tipo === 'usuario' ? (
-        <>
-          <div className="form-group">
-            <label>Dirección</label>
-            <input value={form.direccion} onChange={(e) => upd('direccion', e.target.value)} required />
-          </div>
-          <div className="row">
-            <div className="form-group">
-              <label>Latitud</label>
-              <input type="number" step="any" value={form.latitud} onChange={(e) => upd('latitud', e.target.value)} />
-            </div>
-            <div className="form-group">
-              <label>Longitud</label>
-              <input type="number" step="any" value={form.longitud} onChange={(e) => upd('longitud', e.target.value)} />
-            </div>
-          </div>
-        </>
-      ) : (
+      <div className="form-group">
+        <label>Localidad</label>
+        <input value={form.localidad} onChange={(e) => upd('localidad', e.target.value)} required />
+      </div>
+
+      {tipo === 'plomero' && (
         <>
           <div className="form-group">
             <label>Especialidad</label>
@@ -129,18 +112,12 @@ export default function Registro({ onRegistrado }) {
               ))}
             </select>
           </div>
-          <div className="row">
-            <div className="form-group">
-              <label>Género</label>
-              <select value={form.genero} onChange={(e) => upd('genero', e.target.value)}>
-                <option value="M">M</option>
-                <option value="F">F</option>
-              </select>
-            </div>
-            <div className="form-group">
-              <label>Localidad</label>
-              <input value={form.localidad} onChange={(e) => upd('localidad', e.target.value)} required />
-            </div>
+          <div className="form-group">
+            <label>Género</label>
+            <select value={form.genero} onChange={(e) => upd('genero', e.target.value)}>
+              <option value="M">M</option>
+              <option value="F">F</option>
+            </select>
           </div>
           <div className="form-group">
             <label className="toggle">

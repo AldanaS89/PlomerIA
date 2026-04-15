@@ -16,9 +16,7 @@ def crear_solicitud(db: Session, datos: SolicitudCreate, id_usuario: int) -> Sol
 
     if not datos.id_plomero:
         usuario = usuario_repository.buscar_por_id(db, id_usuario)
-        localidad = None
-        if usuario and getattr(usuario, "direccion", None):
-            localidad = usuario.direccion
+        localidad = usuario.localidad if usuario else None
 
         plomero = plomero_repository.buscar_disponible_para(
             db,

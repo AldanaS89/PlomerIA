@@ -39,10 +39,8 @@ def registrar(db: Session, datos: RegistroRequest) -> dict:
         apellido=datos.apellido,
         email=datos.email,
         password_hash=_hashear(datos.password),
-        direccion=datos.direccion,
+        localidad=datos.localidad,
         telefono=datos.telefono,
-        latitud=datos.latitud,
-        longitud=datos.longitud,
     )
 
     usuario = crear_usuario(db, nuevo_usuario)
