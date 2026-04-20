@@ -7,20 +7,27 @@ import secrets
 
 from models.usuario import Usuario
 from schemas.auth import RegistroRequest, LoginRequest, LoginResponse
-from repositories import usuario_repository
-from utils.email import enviar_reset_password
+# Aseguramos que los nombres de las carpetas coincidan con tu estructura (repositories)
+from repositories.usuario_repository import buscar_por_email, crear_usuario
 
-SECRET_KEY  = "plomeria_secreta_2024"
-ALGORITHM   = "HS256"
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+SECRET_KEY = "plomeria_secreta_2024"  # Después lo pasamos a un archivo .env
+ALGORITHM  = "HS256"
 
-def hashear_password(password: str) -> str:
+
+# Cambiamos "bcrypt" por "pbkdf2_sha256" que no tiene el error de los 72 bytes
+pwd_context = CryptContext(
+    schemes=["pbkdf2_sha256"], 
+    deprecated="auto"
+)
+
+# Y tus funciones de hasheo dejalas simples, así:
+def _hashear(password: str) -> str:
     return pwd_context.hash(password)
 
 def verificar_password(password: str, hashed: str) -> bool:
     return pwd_context.verify(password, hashed)
 
-def crear_token(id_usuario: int) -> str:
+def _crear_token(id_usuario: int, tipo: str) -> str:
     expiracion = datetime.utcnow() + timedelta(hours=24)
     return jwt.encode(
         {"sub": str(id_usuario), "tipo": "usuario", "exp": expiracion},
@@ -29,10 +36,12 @@ def crear_token(id_usuario: int) -> str:
     )
 
 def registrar(db: Session, datos: RegistroRequest) -> dict:
-    if usuario_repository.buscar_por_email(db, datos.email):
+    # 1. Verificar que el email no esté en uso
+    if buscar_por_email(db, datos.email):
         raise HTTPException(status_code=400, detail="El email ya está registrado")
 
-    nuevo = Usuario(
+    # 2. Crear el objeto Usuario con los datos del registro
+    nuevo_usuario = Usuario(
         nombre        = datos.nombre,
         apellido      = datos.apellido,
         email         = datos.email,
@@ -42,8 +51,10 @@ def registrar(db: Session, datos: RegistroRequest) -> dict:
         latitud       = datos.latitud,
         longitud      = datos.longitud,
     )
-    usuario = usuario_repository.crear_usuario(db, nuevo)
-    token   = crear_token(usuario.id_usuario)
+    
+    # 3. Guardar en la base de datos
+    usuario = crear_usuario(db, nuevo_usuario)
+    return {"mensaje": "Usuario registrado correctamente", "id": usuario.id_usuario}
 
     return {
         "mensaje":      "Usuario registrado correctamente",
