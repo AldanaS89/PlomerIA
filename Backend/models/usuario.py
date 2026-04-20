@@ -15,3 +15,4 @@ class Usuario(Base):
     latitud = Column(Float)
     longitud = Column(Float)
     fecha_registro = Column(DateTime, default=datetime.now)  
+    reset_token = Column(String, nullable=True)

@@ -16,3 +16,17 @@ def crear_usuario(db: Session, usuario: Usuario) -> Usuario:
 
 def listar_todos(db: Session) -> list[Usuario]:
     return db.query(Usuario).all()
+
+def guardar_reset_token(db: Session, id_usuario: int, token: str) -> None:
+    usuario = buscar_por_id(db, id_usuario)
+    usuario.reset_token = token
+    db.commit()
+
+def buscar_por_reset_token(db: Session, token: str):
+    return db.query(Usuario).filter(Usuario.reset_token == token).first()
+
+def actualizar_password(db: Session, id_usuario: int, nuevo_hash: str) -> None:
+    usuario = buscar_por_id(db, id_usuario)
+    usuario.password_hash = nuevo_hash
+    usuario.reset_token   = None  # invalida el token después de usarlo
+    db.commit()

@@ -39,3 +39,10 @@ class PlomeroLoginResponse(BaseModel):
     token_type:   str
     id_plomero:   int
     nombre:       str
+    
+class OlvidePasswordPlomeroRequest(BaseModel):
+    email: EmailStr
+
+class ResetPasswordPlomeroRequest(BaseModel):
+    token:           str
+    nueva_password:  str
