@@ -4,19 +4,30 @@ from passlib.context import CryptContext
 from jose import jwt
 from datetime import datetime, timedelta
 from typing import Optional
-
+import secrets
 from models.plomero import Plomero
+from utils.email import enviar_reset_password
 from schemas.plomero import (PlomeroRequest, PlomeroResponse,
-                              PlomeroLoginRequest, PlomeroLoginResponse)
+                              PlomeroLoginRequest, PlomeroLoginResponse, OlvidePasswordPlomeroRequest, ResetPasswordPlomeroRequest)
 from repositories import plomero_repository
 
 SECRET_KEY  = "plomeria_secreta_2024"
 ALGORITHM   = "HS256"
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
+def _crear_token(id_plomero: int) -> str:
+    """Genera un JWT con el ID del plomero, tipo y expiración en 24hs."""
+    expiracion = datetime.utcnow() + timedelta(hours=24)
+    return jwt.encode(
+        {"sub": str(id_plomero), "tipo": "plomero", "exp": expiracion},
+        SECRET_KEY,
+        algorithm=ALGORITHM
+    )
+
 def registrar(db: Session, datos: PlomeroRequest) -> dict:
     if plomero_repository.buscar_por_email(db, datos.email):
         raise HTTPException(status_code=400, detail="El email ya está registrado")
+
     nuevo = Plomero(
         nombre            = datos.nombre,
         apellido          = datos.apellido,
@@ -33,21 +44,21 @@ def registrar(db: Session, datos: PlomeroRequest) -> dict:
         total_trabajos    = 0,
     )
     plomero = plomero_repository.crear_plomero(db, nuevo)
-    return {"mensaje": "Plomero registrado correctamente", "id": plomero.id_plomero}
-#Toma el ID del plomero y genera un token JWT que contiene tres cosas:
-# el ID del plomero (subject, quién es), si es plomero o usuario,cuándo expira (en 24 horas)
-def _crear_token(id_plomero: int) -> str:
-    expiracion = datetime.utcnow() + timedelta(hours=24)
-    return jwt.encode(
-        {"sub": str(id_plomero), "tipo": "plomero", "exp": expiracion},
-        SECRET_KEY,
-        algorithm=ALGORITHM
-    )
+    token   = _crear_token(plomero.id_plomero)
+
+    return {
+        "mensaje":      "Plomero registrado correctamente",
+        "access_token": token,
+        "token_type":   "bearer",
+        "id_plomero":   plomero.id_plomero,
+        "nombre":       plomero.nombre,
+    }
 
 def login(db: Session, datos: PlomeroLoginRequest) -> PlomeroLoginResponse:
     plomero = plomero_repository.buscar_por_email(db, datos.email)
     if not plomero or not pwd_context.verify(datos.password, plomero.password_hash):
         raise HTTPException(status_code=401, detail="Email o contraseña incorrectos")
+
     token = _crear_token(plomero.id_plomero)
     return PlomeroLoginResponse(
         access_token = token,
@@ -83,6 +94,30 @@ def buscar(
     plomeros = plomero_repository.filtrar(
         db, localidad, genero, especialidad, atiende_urgencias
     )
-#model_validate convierte cada objeto SQLAlchemy en un PlomeroResponse — es lo que garantiza que
-#la respuesta tenga exactamente los campos definidos en el schema, sin exponer campos sensibles como password_hash.
     return [PlomeroResponse.model_validate(p) for p in plomeros]
+
+def olvide_password(db: Session, email: str) -> dict:
+    plomero = plomero_repository.buscar_por_email(db, email)
+
+    if not plomero:
+        return {"mensaje": "Si el email existe, vas a recibir un link para restablecer tu contraseña"}
+
+    token = secrets.token_urlsafe(32)
+    plomero_repository.guardar_reset_token(db, plomero.id_plomero, token)
+
+    try:
+        enviar_reset_password(plomero.email, token)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error al enviar el email: {str(e)}")
+
+    return {"mensaje": "Si el email existe, vas a recibir un link para restablecer tu contraseña"}
+
+def reset_password(db: Session, token: str, nueva_password: str) -> dict:
+    plomero = plomero_repository.buscar_por_reset_token(db, token)
+    if not plomero:
+        raise HTTPException(status_code=400, detail="Token inválido o ya usado")
+
+    nuevo_hash = pwd_context.hash(nueva_password)
+    plomero_repository.actualizar_password(db, plomero.id_plomero, nuevo_hash)
+
+    return {"mensaje": "Contraseña actualizada correctamente"}

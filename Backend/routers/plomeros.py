@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 from typing import Optional
 from database import get_db
 from schemas.plomero import (PlomeroRequest, PlomeroResponse,
-                              PlomeroLoginRequest, PlomeroLoginResponse)
+                              PlomeroLoginRequest, PlomeroLoginResponse, OlvidePasswordPlomeroRequest, ResetPasswordPlomeroRequest)
 from services import plomero_service
 from utils.auth_plomeros import get_plomero_actual
 
@@ -42,3 +42,11 @@ def cambiar_disponibilidad(
     id_plomero: int = Depends(get_plomero_actual)  # verifica el JWT
 ):
     return plomero_service.cambiar_disponibilidad(db, id_plomero, disponible)
+
+@router.post("/olvide-password")
+def olvide_password(datos: OlvidePasswordPlomeroRequest, db: Session = Depends(get_db)):
+    return plomero_service.olvide_password(db, datos.email)
+
+@router.post("/reset-password")
+def reset_password(datos: ResetPasswordPlomeroRequest, db: Session = Depends(get_db)):
+    return plomero_service.reset_password(db, datos.token, datos.nueva_password)

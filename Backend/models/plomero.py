@@ -22,3 +22,5 @@ class Plomero(Base):
     matricula_gas     = Column(Boolean, default=False)
     password_hash     = Column(String)
     fecha_registro    = Column(DateTime, default=datetime.now)
+    reset_token = Column(String, nullable=True)
+    
