@@ -10,9 +10,8 @@ from utils.email import enviar_reset_password
 from schemas.plomero import (PlomeroRequest, PlomeroResponse,
                               PlomeroLoginRequest, PlomeroLoginResponse, OlvidePasswordPlomeroRequest, ResetPasswordPlomeroRequest)
 from repositories import plomero_repository
+from config import SECRET_KEY, ALGORITHM
 
-SECRET_KEY  = "plomeria_secreta_2024"
-ALGORITHM   = "HS256"
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 def _crear_token(id_plomero: int) -> str:
@@ -33,7 +32,8 @@ def registrar(db: Session, datos: PlomeroRequest) -> dict:
         apellido          = datos.apellido,
         email             = datos.email,
         telefono          = datos.telefono,
-        especialidad      = datos.especialidad,
+        especialidad      = datos.especialidad.value, # .value convierte el enum a string
+        otra_especialidad = datos.otra_especialidad,
         genero            = datos.genero,
         localidad         = datos.localidad,
         atiende_urgencias = datos.atiende_urgencias,

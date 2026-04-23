@@ -2,9 +2,7 @@
 from fastapi import Depends, HTTPException
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from jose import jwt, JWTError
-
-SECRET_KEY = "plomeria_secreta_2024"
-ALGORITHM  = "HS256"
+from config import SECRET_KEY, ALGORITHM
 
 bearer_scheme = HTTPBearer()
 """

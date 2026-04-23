@@ -11,6 +11,7 @@ class Plomero(Base):
     email             = Column(String, unique=True, index=True)
     telefono          = Column(String)
     especialidad      = Column(String)
+    otra_especialidad = Column(String, nullable=True)
     genero            = Column(String)
     localidad         = Column(String)
     latitud           = Column(Float, nullable=True)   # ← agregar

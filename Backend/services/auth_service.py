@@ -9,9 +9,8 @@ from models.usuario import Usuario
 from schemas.auth import RegistroRequest, LoginRequest, LoginResponse
 from repositories import usuario_repository
 from utils.email import enviar_reset_password
+from config import SECRET_KEY, ALGORITHM
 
-SECRET_KEY  = "plomeria_secreta_2024"
-ALGORITHM   = "HS256"
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 def hashear_password(password: str) -> str:

@@ -10,7 +10,7 @@ from utils.auth_plomeros import get_plomero_actual
 
 router = APIRouter(prefix="/plomeros", tags=["Plomeros"])
 
-#cuando llegue un POST a /plomeros/login, tomá los datos, pasáselos al service y devolvé lo que te responda". Nada más.
+
 @router.post("/registro")
 def registrar(datos: PlomeroRequest, db: Session = Depends(get_db)):
     return plomero_service.registrar(db, datos)
@@ -29,11 +29,6 @@ def buscar(
 ):
     return plomero_service.buscar(db, localidad, genero, especialidad, atiende_urgencias)
 
-@router.get("/{id}", response_model=PlomeroResponse)
-def obtener(id: int, db: Session = Depends(get_db)):
-    return plomero_service.obtener_por_id(db, id)
-
-
 @router.patch("/disponibilidad")
 #no recibe el ID por URL sino que lo saca del token
 def cambiar_disponibilidad(
@@ -50,3 +45,8 @@ def olvide_password(datos: OlvidePasswordPlomeroRequest, db: Session = Depends(g
 @router.post("/reset-password")
 def reset_password(datos: ResetPasswordPlomeroRequest, db: Session = Depends(get_db)):
     return plomero_service.reset_password(db, datos.token, datos.nueva_password)
+
+
+@router.get("/{id}", response_model=PlomeroResponse)
+def obtener(id: int, db: Session = Depends(get_db)):
+    return plomero_service.obtener_por_id(db, id)

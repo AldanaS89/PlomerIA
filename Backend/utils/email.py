@@ -4,11 +4,10 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from dotenv import load_dotenv
 import os
+from config import MAIL_EMAIL, MAIL_PASSWORD
 
 load_dotenv()
 
-MAIL_EMAIL    = os.getenv("MAIL_EMAIL")
-MAIL_PASSWORD = os.getenv("MAIL_PASSWORD")
 
 def enviar_email(destinatario: str, asunto: str, cuerpo_html: str):
     msg = MIMEMultipart("alternative")
