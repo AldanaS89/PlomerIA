@@ -1,0 +1,124 @@
+:root {
+  --azul: #0b63d4;
+  --azul-oscuro: #084a9e;
+  --gris: #f3f4f6;
+  --gris-oscuro: #6b7280;
+  --borde: #e5e7eb;
+  --texto: #111827;
+  --verde: #16a34a;
+  --rojo: #dc2626;
+  --amarillo: #d97706;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+  margin: 0;
+  background: var(--gris);
+  color: var(--texto);
+}
+
+.app {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 1rem;
+}
+
+header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1rem 0;
+  border-bottom: 1px solid var(--borde);
+  margin-bottom: 1.5rem;
+}
+
+h1 { margin: 0; font-size: 1.5rem; color: var(--azul); }
+h2 { font-size: 1.2rem; margin-top: 1.5rem; }
+
+.card {
+  background: white;
+  border: 1px solid var(--borde);
+  border-radius: 10px;
+  padding: 1rem;
+  margin-bottom: 1rem;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+}
+
+.form-group { margin-bottom: 0.75rem; }
+label { display: block; font-size: 0.85rem; margin-bottom: 0.25rem; color: var(--gris-oscuro); }
+input, select, textarea {
+  width: 100%;
+  padding: 0.6rem;
+  border: 1px solid var(--borde);
+  border-radius: 6px;
+  font-size: 1rem;
+  font-family: inherit;
+}
+textarea { resize: vertical; min-height: 90px; }
+
+button {
+  background: var(--azul);
+  color: white;
+  border: none;
+  padding: 0.7rem 1.2rem;
+  border-radius: 6px;
+  font-size: 1rem;
+  cursor: pointer;
+  font-weight: 500;
+}
+button:hover:not(:disabled) { background: var(--azul-oscuro); }
+button:disabled { opacity: 0.5; cursor: not-allowed; }
+button.secondary { background: var(--gris-oscuro); }
+button.success { background: var(--verde); }
+button.danger { background: var(--rojo); }
+button.ghost {
+  background: transparent;
+  color: var(--azul);
+  border: 1px solid var(--azul);
+}
+
+.row { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+.row > * { flex: 1; min-width: 150px; }
+
+.error { color: var(--rojo); font-size: 0.9rem; margin: 0.5rem 0; }
+.success-msg { color: var(--verde); font-size: 0.9rem; margin: 0.5rem 0; }
+.muted { color: var(--gris-oscuro); font-size: 0.85rem; }
+
+.badge {
+  display: inline-block;
+  padding: 0.2rem 0.6rem;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+.badge.pendiente { background: #fef3c7; color: var(--amarillo); }
+.badge.aceptado { background: #dcfce7; color: var(--verde); }
+.badge.rechazado { background: #fee2e2; color: var(--rojo); }
+.badge.urgencia-URGENTE { background: #fee2e2; color: var(--rojo); }
+.badge.urgencia-NORMAL { background: #e0f2fe; color: var(--azul); }
+.badge.urgencia-BAJA { background: #f3f4f6; color: var(--gris-oscuro); }
+
+.tabs {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+}
+.tabs button {
+  background: white;
+  color: var(--texto);
+  border: 1px solid var(--borde);
+}
+.tabs button.active {
+  background: var(--azul);
+  color: white;
+  border-color: var(--azul);
+}
+
+.toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}

@@ -33,6 +33,22 @@ def actualizar_puntuacion(db: Session, id: int, nueva_puntuacion: float, total: 
         plomero.total_trabajos = total
         db.commit()
 
+def buscar_disponible_para(
+    db: Session,
+    especialidad: Optional[str] = None,
+    localidad: Optional[str] = None,
+    atiende_urgencias: Optional[bool] = None,
+) -> Plomero | None:
+    query = db.query(Plomero).filter(Plomero.disponible_ahora == True)
+    if especialidad:
+        query = query.filter(Plomero.especialidad == especialidad)
+    if localidad:
+        query = query.filter(Plomero.localidad == localidad)
+    if atiende_urgencias is True:
+        query = query.filter(Plomero.atiende_urgencias == True)
+    return query.order_by(Plomero.puntuacion.desc()).first()
+
+
 def filtrar(
     db:                Session,
     localidad:         Optional[str]  = None,
