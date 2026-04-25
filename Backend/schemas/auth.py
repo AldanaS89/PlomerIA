@@ -1,16 +1,18 @@
-from pydantic import BaseModel, EmailStr
-# ── Schemas (qué datos esperamos recibir) ──────────────────
-#Define que JSON esperamos recibir - FastAPI valida solo
-
+# schemas/auth.py
 #Lo que envia el cliente para registrarse
+from pydantic import BaseModel, EmailStr
+from typing import Optional
+
 class RegistroRequest(BaseModel):
     nombre: str
     apellido: str
     email: EmailStr
     password: str
-    localidad: str
+    direccion: str
+    localidad: str # ← Agregado para organizar por zonas (Almirante Brown)
     telefono: str
-# Lo que manda el cliente para hacer login
+    latitud: float
+    longitud: float# Lo que manda el cliente para hacer login
 class LoginRequest(BaseModel):
     email: EmailStr
     password: str
