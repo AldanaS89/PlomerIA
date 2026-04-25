@@ -72,3 +72,17 @@ def filtrar(
 
     # Ordenar por puntuación descendente
     return query.order_by(Plomero.puntuacion.desc()).all()
+
+def guardar_reset_token(db: Session, id_plomero: int, token: str) -> None:
+    plomero = buscar_por_id(db, id_plomero)
+    plomero.reset_token = token
+    db.commit()
+
+def buscar_por_reset_token(db: Session, token: str):
+    return db.query(Plomero).filter(Plomero.reset_token == token).first()
+
+def actualizar_password(db: Session, id_plomero: int, nuevo_hash: str) -> None:
+    plomero = buscar_por_id(db, id_plomero)
+    plomero.password_hash = nuevo_hash
+    plomero.reset_token   = None
+    db.commit()

@@ -21,3 +21,9 @@ class LoginResponse(BaseModel):
     token_type:   str
     id_usuario:   int
     nombre:       str
+class OlvidePasswordRequest(BaseModel):
+    email: EmailStr
+
+class ResetPasswordRequest(BaseModel):
+    token:        str
+    nueva_password: str
