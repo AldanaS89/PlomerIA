@@ -9,10 +9,12 @@ class RegistroRequest(BaseModel):
     email: EmailStr
     password: str
     direccion: str
-    localidad: str # ← Agregado para organizar por zonas (Almirante Brown)
+    localidad: str
     telefono: str
-    latitud: float
-    longitud: float# Lo que manda el cliente para hacer login
+    # Ponelos como Optional para que el Frontend no esté obligado a enviarlos
+    latitud: Optional[float] = None 
+    longitud: Optional[float] = None
+    
 class LoginRequest(BaseModel):
     email: EmailStr
     password: str
@@ -29,3 +31,7 @@ class OlvidePasswordRequest(BaseModel):
 class ResetPasswordRequest(BaseModel):
     token:        str
     nueva_password: str
+
+from typing import Optional
+from pydantic import BaseModel, EmailStr
+

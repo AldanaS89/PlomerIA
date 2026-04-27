@@ -8,9 +8,8 @@ from schemas.plomero import (PlomeroRequest, PlomeroResponse,
 from services import plomero_service
 from utils.auth_plomeros import get_plomero_actual
 
-router = APIRouter(prefix="/plomeros", tags=["Plomeros"])
+router = APIRouter(tags=["Plomeros"])
 
-#cuando llegue un POST a /plomeros/login, tomá los datos, pasáselos al service y devolvé lo que te responda". Nada más.
 @router.post("/registro")
 def registrar(datos: PlomeroRequest, db: Session = Depends(get_db)):
     return plomero_service.registrar(db, datos)
@@ -33,13 +32,11 @@ def buscar(
 def obtener(id: int, db: Session = Depends(get_db)):
     return plomero_service.obtener_por_id(db, id)
 
-
 @router.patch("/disponibilidad")
-#no recibe el ID por URL sino que lo saca del token
 def cambiar_disponibilidad(
     disponible: bool,
     db: Session = Depends(get_db),
-    id_plomero: int = Depends(get_plomero_actual)  # verifica el JWT
+    id_plomero: int = Depends(get_plomero_actual)
 ):
     return plomero_service.cambiar_disponibilidad(db, id_plomero, disponible)
 

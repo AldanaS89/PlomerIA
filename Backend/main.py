@@ -1,13 +1,23 @@
+import sys
+import os
+
+# Esto le dice a Python que la carpeta Backend es una raíz de búsqueda
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from fastapi import FastAPI
 from database import engine, Base
-import models  # Carga la configuración de todos los modelos (Usuario, Plomero, etc.)
+import models  # Carga la configuración de todos los modelos
 from fastapi.middleware.cors import CORSMiddleware
 from routers import auth, usuarios, plomeros, solicitudes 
 
-app = FastAPI(title="PlomerIA API - Almirante Brown")
+# --- CONFIGURACIÓN DE APP ---
+# redirect_slashes=False ayuda a que el Front no falle por una "/" de más
+app = FastAPI(
+    title="PlomerIA - Zona Sur",
+    redirect_slashes=False
+)
 
 # --- CONFIGURACIÓN DE CORS ---
-# Fundamental para que el equipo de Front (React Native) pueda conectarse
+# Permite que tu Frontend (puerto 5173) se comunique sin bloqueos de seguridad
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -17,14 +27,16 @@ app.add_middleware(
 )
 
 # --- CREACIÓN DE BASE DE DATOS ---
-# Esto genera las tablas automáticamente basándose en tus modelos actualizados
+# Genera las tablas con tus campos de latitud/longitud automáticamente
+from routers import disponibilidad
+app.include_router(disponibilidad.router, prefix="/api/disponibilidad")
 Base.metadata.create_all(bind=engine)
 
-# --- REGISTRO DE RUTAS ---
-app.include_router(auth.router, prefix="/auth", tags=["Autenticación"])
-app.include_router(usuarios.router, prefix="/usuarios", tags=["Usuarios"])
-app.include_router(plomeros.router, prefix="/plomeros", tags=["Plomeros"])
-app.include_router(solicitudes.router, prefix="/solicitudes", tags=["Solicitudes"])
+# --- REGISTRO DE RUTAS CON PREFIJO /API ---
+app.include_router(auth.router, prefix="/api/auth", tags=["Autenticación"])
+app.include_router(usuarios.router, prefix="/api/usuarios", tags=["Usuarios"])
+app.include_router(plomeros.router, prefix="/api/plomeros", tags=["Plomeros"])
+app.include_router(solicitudes.router, prefix="/api/solicitudes", tags=["Solicitudes"])
 
 @app.get("/")
 def inicio():
@@ -34,8 +46,7 @@ def inicio():
         "zona": "Almirante Brown"
     }
 
-# --- BLOQUE DE ARRANQUE (Conveniente para el equipo) ---
+# --- BLOQUE DE ARRANQUE ---
 if __name__ == "__main__":
     import uvicorn
-    # reload=True reinicia el servidor automáticamente al guardar cambios
     uvicorn.run("main:app", host="127.0.0.1", port=8000, reload=True)

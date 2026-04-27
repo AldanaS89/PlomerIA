@@ -1,32 +1,88 @@
-from fastapi import APIRouter, Depends, HTTPException
-from jose import jwt
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
-from database import get_db
-from schemas.auth import RegistroRequest, LoginRequest, LoginResponse, OlvidePasswordRequest,ResetPasswordRequest
-from services import auth_service
-from services.auth_service import hashear_password
-from models import Usuario
-from schemas.auth import OlvidePasswordRequest, ResetPasswordRequest
+from geopy.geocoders import Nominatim
+from geopy.exc import GeocoderTimedOut
 
-SECRET_KEY = "plomeria_secreta_2024"
-ALGORITHM = "HS256"
+# --- IMPORTACIONES  DE MODELOS ---
+from database import get_db 
+from models.usuario import Usuario 
+from schemas.auth import RegistroRequest, LoginRequest, LoginResponse
+from utils.seguridad import hashear_password, verificar_password, crear_token_acceso
 
-router = APIRouter(prefix="/auth", tags=["Autenticación"])
+router = APIRouter(prefix="", tags=["auth"])
 
-@router.post("/registro")
-def registrar(datos: RegistroRequest, db: Session = Depends(get_db)):
-    return auth_service.registrar(db, datos)
+# Configuramos GeoPy para automatizar la ubicación en Zona Sur
+geolocator = Nominatim(user_agent="plomeria_unab_app")
+
+def obtener_coordenadas(direccion, localidad):
+    """Convierte dirección en latitud/longitud para el mapa"""
+    try:
+        consulta = f"{direccion}, {localidad}, Buenos Aires, Argentina"
+        location = geolocator.geocode(consulta)
+        if location:
+            return location.latitude, location.longitude
+        return None, None
+    except (GeocoderTimedOut, Exception):
+        return None, None
+
+@router.post("/registro", status_code=status.HTTP_201_CREATED)
+async def registro_cliente(data: RegistroRequest, db: Session = Depends(get_db)):
+    # 1. Verificar duplicados
+    existe = db.query(Usuario).filter(Usuario.email == data.email).first()
+    if existe:
+        raise HTTPException(status_code=400, detail="El email ya está registrado")
+
+    # 2. Lógica GeoPy para Longchamps y alrededores
+    lat, lon = data.latitud, data.longitud
+    if lat is None or lon is None:
+        lat_geo, lon_geo = obtener_coordenadas(data.direccion, data.localidad)
+        if lat_geo and lon_geo:
+            lat, lon = lat_geo, lon_geo
+        else:
+            # Valores por defecto si falla la búsqueda
+            lat = lat or -34.85
+            lon = lon or -58.38
+
+    # 3. Crear usuario con password segura
+    nuevo_usuario = Usuario(
+        nombre=data.nombre,
+        apellido=data.apellido,
+        email=data.email,
+        password_hash=hashear_password(data.password),
+        telefono=data.telefono,
+        localidad=data.localidad,
+        direccion=data.direccion,
+        latitud=lat,
+        longitud=lon
+    )
+
+    db.add(nuevo_usuario)
+    db.commit()
+    db.refresh(nuevo_usuario)
+    
+    return {"message": "Usuario creado con éxito", "id": nuevo_usuario.id_usuario}
 
 @router.post("/login", response_model=LoginResponse)
-def login(datos: LoginRequest, db: Session = Depends(get_db)):
-    return auth_service.login(db, datos)
+async def login_cliente(data: LoginRequest, db: Session = Depends(get_db)):
+    usuario = db.query(Usuario).filter(Usuario.email == data.email).first()
+    
+    # 4. VALIDACIÓN DE PASSWORD REAL
+    if not usuario or not verificar_password(data.password, usuario.password_hash): # ← Cambiado a password_hash
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, 
+            detail="Credenciales incorrectas"
+        )
 
-@router.post("/olvide-password")
-def olvide_password(datos: OlvidePasswordRequest, db: Session = Depends(get_db)):
-    return auth_service.olvide_password(db, datos.email)
-
-@router.post("/reset-password")
-def reset_password(datos: ResetPasswordRequest, db: Session = Depends(get_db)):
-    return auth_service.reset_password(db, datos.token, datos.nueva_password)
-
-
+    # 5. TOKEN CON 'TIPO'
+    # Vital para que auth_plomeros.py no te tire error 403
+    token = crear_token_acceso({
+        "sub": str(usuario.id_usuario),
+        "tipo": "usuario" 
+    })
+    
+    return {
+        "access_token": token,
+        "token_type": "bearer",
+        "id_usuario": usuario.id_usuario,
+        "nombre": usuario.nombre
+    }
