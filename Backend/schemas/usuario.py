@@ -6,9 +6,7 @@ class UsuarioResponse(BaseModel):
     apellido:   str
     email:      str
     telefono:   str
-    direccion:  str
-    latitud:    float
-    longitud:   float
+    localidad:  str
 
     class Config:
         from_attributes = True

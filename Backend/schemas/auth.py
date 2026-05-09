@@ -8,10 +8,8 @@ class RegistroRequest(BaseModel):
     apellido: str
     email: EmailStr
     password: str
-    direccion: str
+    localidad: str
     telefono: str
-    latitud: float
-    longitud: float
 # Lo que manda el cliente para hacer login
 class LoginRequest(BaseModel):
     email: EmailStr

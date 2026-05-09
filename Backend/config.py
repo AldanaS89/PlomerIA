@@ -1,10 +1,9 @@
-from dotenv import load_dotenv
 import os
+from pathlib import Path
+from dotenv import load_dotenv
 
-load_dotenv()
+load_dotenv(Path(__file__).parent / ".env")
 
-SECRET_KEY = os.getenv("SECRET_KEY", "clave_por_defecto_solo_desarrollo")
-ALGORITHM  = os.getenv("ALGORITHM", "HS256")
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-MAIL_EMAIL     = os.getenv("MAIL_EMAIL")
-MAIL_PASSWORD  = os.getenv("MAIL_PASSWORD")
+SECRET_KEY = os.getenv("SECRET_KEY", "dev_insecure_key")
+ALGORITHM = "HS256"
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
