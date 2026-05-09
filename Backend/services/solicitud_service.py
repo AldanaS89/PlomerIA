@@ -5,7 +5,7 @@ from schemas.solicitud import SolicitudCreate, SolicitudResponse
 from models.solicitud import EstadoSolicitud
 from repositories import solicitud_repository, plomero_repository, usuario_repository
 from services import ia_service
-
+from utils.email import enviar_solicitud_plomero
 
 def _to_response(s) -> SolicitudResponse:
     return SolicitudResponse.from_orm_obj(s)

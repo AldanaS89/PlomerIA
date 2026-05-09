@@ -5,6 +5,7 @@ from jose import jwt
 from datetime import datetime, timedelta
 import secrets
 
+from utils.email import enviar_reset_password
 from config import SECRET_KEY, ALGORITHM
 from models.usuario import Usuario
 from schemas.auth import RegistroRequest, LoginRequest, LoginResponse
@@ -13,7 +14,7 @@ from repositories.usuario_repository import (
     buscar_por_email,
     crear_usuario,
 )
-from services.email_service import enviar_reset_password  # ajustá el import a tu estructura
+#from services.auth_service import enviar_reset_password  # ajustá el import a tu estructura
 
 # pbkdf2_sha256: sin el bug de 72 bytes de bcrypt, compatible con el frontend
 pwd_context = CryptContext(schemes=["pbkdf2_sha256"], deprecated="auto")

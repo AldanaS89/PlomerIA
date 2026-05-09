@@ -22,6 +22,7 @@ Base.metadata.create_all(bind=engine)
 
 app.include_router(usuarios_routes.router)
 app.include_router(plomeros_routes.router)
+app.include_router(usuarios_routes.router)
 #app.include_router(solicitudes.router)
 # app.include_router(calificaciones.router)
 

@@ -7,3 +7,6 @@ load_dotenv(Path(__file__).parent / ".env")
 SECRET_KEY = os.getenv("SECRET_KEY", "dev_insecure_key")
 ALGORITHM = "HS256"
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
+
+MAIL_EMAIL = os.getenv("MAIL_EMAIL")
+MAIL_PASSWORD = os.getenv("MAIL_PASSWORD")

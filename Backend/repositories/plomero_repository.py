@@ -1,7 +1,9 @@
 from sqlalchemy.orm import Session
 from models.plomero import Plomero
 from typing import Optional
+from math import radians, sin, cos, sqrt, atan2
 
+RADIO_KM = 5.0
 def buscar_por_email(db: Session, email: str) -> Plomero | None:
     return db.query(Plomero).filter(Plomero.email == email).first()
 
@@ -86,3 +88,39 @@ def actualizar_password(db: Session, id_plomero: int, nuevo_hash: str) -> None:
     plomero.password_hash = nuevo_hash
     plomero.reset_token   = None
     db.commit()
+    
+def _distancia_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    """Fórmula de Haversine."""
+    R = 6371
+    lat1, lon1, lat2, lon2 = map(radians, [lat1, lon1, lat2, lon2])
+    dlat = lat2 - lat1
+    dlon = lon2 - lon1
+    a = sin(dlat/2)**2 + cos(lat1) * cos(lat2) * sin(dlon/2)**2
+    return R * 2 * atan2(sqrt(a), sqrt(1-a))
+
+def buscar_para_solicitud(
+    db:                Session,
+    especialidad:      Optional[str]   = None,
+    lat_usuario:       Optional[float] = None,
+    lon_usuario:       Optional[float] = None,
+    atiende_urgencias: bool            = False,
+    limite:            int             = 3,
+) -> list[Plomero]:
+    query = db.query(Plomero).filter(Plomero.disponible_ahora == True)
+
+    if especialidad:
+        query = query.filter(Plomero.especialidad == especialidad)
+    if atiende_urgencias:
+        query = query.filter(Plomero.atiende_urgencias == True)
+
+    plomeros = query.order_by(Plomero.puntuacion.desc()).all()
+
+    # Filtrar por radio de 5km si hay coordenadas
+    if lat_usuario and lon_usuario:
+        plomeros = [
+            p for p in plomeros
+            if p.latitud and p.longitud and
+            _distancia_km(lat_usuario, lon_usuario, p.latitud, p.longitud) <= RADIO_KM
+        ]
+
+    return plomeros[:limite]

@@ -10,6 +10,7 @@ class EstadoSolicitud(enum.Enum):
     PENDIENTE  = "pendiente"
     ACEPTADO   = "aceptado"
     RECHAZADO  = "rechazado"
+    COMPLETADO = "completado"
 
 # ── Modelo principal ──────────────────────────────────────────────────────────
 class Solicitud(Base):
