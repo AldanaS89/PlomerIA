@@ -11,13 +11,18 @@ export default function Registro({ onRegistrado }) {
     email: '',
     password: '',
     telefono: '',
-    localidad: '',
-    // plomero
+    localidad: 'Longchamps', // Valor por defecto sugerido
+    direccion: '',           // Campo obligatorio para el backend
+    // Valores fijos temporales para que el backend no tire error 422
+    latitud: -34.85,          
+    longitud: -58.38,
+    // Datos específicos de plomero
     especialidad: 'PLOMERIA_GENERAL',
     genero: 'M',
     atiende_urgencias: false,
     matricula_gas: false,
   })
+  
   const [error, setError] = useState('')
   const [ok, setOk] = useState('')
   const [cargando, setCargando] = useState(false)
@@ -31,32 +36,18 @@ export default function Registro({ onRegistrado }) {
     setError('')
     setOk('')
     setCargando(true)
+
     try {
+      // Enviamos el objeto 'form' completo. 
+      // Ahora incluye dirección, latitud y longitud, evitando el error 422.
       if (tipo === 'usuario') {
-        await api.registroCliente({
-          nombre: form.nombre,
-          apellido: form.apellido,
-          email: form.email,
-          password: form.password,
-          localidad: form.localidad,
-          telefono: form.telefono,
-        })
+        await api.registroCliente(form)
       } else {
-        await api.registroPlomero({
-          nombre: form.nombre,
-          apellido: form.apellido,
-          email: form.email,
-          password: form.password,
-          telefono: form.telefono,
-          especialidad: form.especialidad,
-          genero: form.genero,
-          localidad: form.localidad,
-          atiende_urgencias: form.atiende_urgencias,
-          matricula_gas: form.matricula_gas,
-        })
+        await api.registroPlomero(form)
       }
-      setOk('¡Registro exitoso! Ya podés iniciar sesión.')
-      setTimeout(() => onRegistrado(), 1500)
+      
+      setOk('¡Registro exitoso! Ya puedes iniciar sesión.')
+      if (onRegistrado) onRegistrado()
     } catch (err) {
       setError(err.message)
     } finally {
@@ -67,40 +58,58 @@ export default function Registro({ onRegistrado }) {
   return (
     <form className="card" onSubmit={handleSubmit}>
       <h2>Crear cuenta</h2>
+      
       <div className="form-group">
         <label>Tipo de cuenta</label>
         <select value={tipo} onChange={(e) => setTipo(e.target.value)}>
-          <option value="usuario">Cliente</option>
-          <option value="plomero">Plomero</option>
+          <option value="usuario">Cliente (Busco plomero)</option>
+          <option value="plomero">Plomero (Busco trabajo)</option>
         </select>
       </div>
+
       <div className="row">
         <div className="form-group">
           <label>Nombre</label>
-          <input value={form.nombre} onChange={(e) => upd('nombre', e.target.value)} required />
+          <input type="text" value={form.nombre} onChange={(e) => upd('nombre', e.target.value)} required />
         </div>
         <div className="form-group">
           <label>Apellido</label>
-          <input value={form.apellido} onChange={(e) => upd('apellido', e.target.value)} required />
+          <input type="text" value={form.apellido} onChange={(e) => upd('apellido', e.target.value)} required />
         </div>
       </div>
+
       <div className="form-group">
         <label>Email</label>
         <input type="email" value={form.email} onChange={(e) => upd('email', e.target.value)} required />
       </div>
+
       <div className="form-group">
         <label>Contraseña</label>
         <input type="password" value={form.password} onChange={(e) => upd('password', e.target.value)} required />
       </div>
+
       <div className="form-group">
         <label>Teléfono</label>
-        <input value={form.telefono} onChange={(e) => upd('telefono', e.target.value)} required />
+        <input type="text" value={form.telefono} onChange={(e) => upd('telefono', e.target.value)} required />
+      </div>
+
+      {/* --- CAMPOS DE UBICACIÓN REQUERIDOS --- */}
+      <div className="form-group">
+        <label>Dirección</label>
+        <input 
+          type="text" 
+          placeholder="Ej: Av. Aviación 123" 
+          value={form.direccion} 
+          onChange={(e) => upd('direccion', e.target.value)} 
+          required 
+        />
       </div>
 
       <div className="form-group">
         <label>Localidad</label>
-        <input value={form.localidad} onChange={(e) => upd('localidad', e.target.value)} required />
+        <input type="text" value={form.localidad} onChange={(e) => upd('localidad', e.target.value)} required />
       </div>
+      {/* ------------------------------------- */}
 
       {tipo === 'plomero' && (
         <>
@@ -121,22 +130,8 @@ export default function Registro({ onRegistrado }) {
           </div>
           <div className="form-group">
             <label className="toggle">
-              <input
-                type="checkbox"
-                checked={form.atiende_urgencias}
-                onChange={(e) => upd('atiende_urgencias', e.target.checked)}
-              />
+              <input type="checkbox" checked={form.atiende_urgencias} onChange={(e) => upd('atiende_urgencias', e.target.checked)} />
               Atiende urgencias
-            </label>
-          </div>
-          <div className="form-group">
-            <label className="toggle">
-              <input
-                type="checkbox"
-                checked={form.matricula_gas}
-                onChange={(e) => upd('matricula_gas', e.target.checked)}
-              />
-              Matrícula de gas
             </label>
           </div>
         </>
@@ -144,8 +139,9 @@ export default function Registro({ onRegistrado }) {
 
       {error && <div className="error">{error}</div>}
       {ok && <div className="success-msg">{ok}</div>}
+      
       <button type="submit" disabled={cargando}>
-        {cargando ? 'Creando…' : 'Crear cuenta'}
+        {cargando ? 'Registrando...' : 'Registrarme'}
       </button>
     </form>
   )

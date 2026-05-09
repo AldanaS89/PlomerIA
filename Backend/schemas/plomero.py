@@ -1,64 +1,64 @@
-from pydantic import BaseModel, EmailStr
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, ConfigDict
 from typing import Optional
-from enum import Enum
+from datetime import datetime
 
-# ── Enums ──────────────────────────────────────────────────
-class Especialidad(str, Enum):
-    PLOMERIA_GENERAL = "PLOMERIA_GENERAL"
-    DESTAPES         = "DESTAPES"
-    GAS_MATRICULADO  = "GAS_MATRICULADO"
-    OBRA             = "OBRA"
-    OTRA             = "OTRA"
-
-class Genero(str, Enum):
-    M = "M"
-    F = "F"
-
+# --- SCHEMA PARA EL REGISTRO (Lo que entra desde el Swagger/App) ---
 class PlomeroRequest(BaseModel):
-    nombre:              str
-    apellido:            str
-    email:               EmailStr
-    telefono:            str
-    especialidad:        Especialidad
-    otra_especialidad:   Optional[str] = None  # solo si especialidad == OTRA
-    genero:              Genero
-    localidad:           str
-    atiende_urgencias:   bool = False
-    matricula_gas:       bool = False
-    password:            str
+    nombre: str
+    apellido: str
+    email: EmailStr
+    telefono: str
+    especialidad: str
+    
+    # Campos nuevos para las mejoras de Aldana:
+    genero: str            # Para el switch de "Plomeras" en la App
+    localidad: str         # Para filtrar por zonas de Almirante Brown
+    latitud: float         # Coordenada para el mapa (Geopy)
+    longitud: float        # Coordenada para el mapa (Geopy)
+    
+    atiende_urgencias: bool
+    matricula_gas: bool
+    password: str
 
+# --- SCHEMA PARA LA RESPUESTA (Lo que el sistema devuelve) ---
 class PlomeroResponse(BaseModel):
-    id_plomero:          int
-    nombre:              str
-    apellido:            str
-    email:               str
-    especialidad:        str
-    otra_especialidad:   Optional[str] = None
-    genero:              str
-    localidad:           str
-    atiende_urgencias:   bool
-    disponible_ahora:    bool
-    puntuacion:          float
-    total_trabajos:      int
-# Le dice a Pydantic que puede convertir un objeto SQLAlchemy directamente a este schema. Sin eso, 
-#PlomeroResponse.model_validate(plomero) no funcionaría.
-    class Config:
-        from_attributes = True
-        
+    id_plomero: int
+    nombre: str
+    apellido: str
+    email: str
+    telefono: str
+    especialidad: str
+    genero: str
+    localidad: str
+    
+    # La ubicación es opcional en la respuesta por si algún perfil no la tiene
+    latitud: Optional[float] = None
+    longitud: Optional[float] = None
+    
+    puntuacion: float
+    total_trabajos: int
+    atiende_urgencias: bool
+    disponible_ahora: bool
+    fecha_registro: datetime
+
+    # Permite que FastAPI convierta objetos de SQLAlchemy a este formato JSON
+    model_config = ConfigDict(from_attributes=True)
+
+# --- SCHEMAS PARA AUTENTICACIÓN ---
 class PlomeroLoginRequest(BaseModel):
-    email:    EmailStr
+    email: EmailStr
     password: str
 
 class PlomeroLoginResponse(BaseModel):
     access_token: str
-    token_type:   str
-    id_plomero:   int
-    nombre:       str
-    
+    token_type: str
+    id_plomero: int
+    nombre: str
+
+# --- SCHEMAS PARA RECUPERACIÓN DE CONTRASEÑA ---
 class OlvidePasswordPlomeroRequest(BaseModel):
     email: EmailStr
 
 class ResetPasswordPlomeroRequest(BaseModel):
-    token:           str
-    nueva_password:  str
+    token: str
+    nueva_password: str

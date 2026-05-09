@@ -8,8 +8,7 @@ from schemas.plomero import (PlomeroRequest, PlomeroResponse,
 from services import plomero_service
 from utils.auth_plomeros import get_plomero_actual
 
-router = APIRouter(prefix="/plomeros", tags=["Plomeros"])
-
+router = APIRouter(tags=["Plomeros"])
 
 @router.post("/registro")
 def registrar(datos: PlomeroRequest, db: Session = Depends(get_db)):
@@ -29,12 +28,15 @@ def buscar(
 ):
     return plomero_service.buscar(db, localidad, genero, especialidad, atiende_urgencias)
 
+@router.get("/{id}", response_model=PlomeroResponse)
+def obtener(id: int, db: Session = Depends(get_db)):
+    return plomero_service.obtener_por_id(db, id)
+
 @router.patch("/disponibilidad")
-#no recibe el ID por URL sino que lo saca del token
 def cambiar_disponibilidad(
     disponible: bool,
     db: Session = Depends(get_db),
-    id_plomero: int = Depends(get_plomero_actual)  # verifica el JWT
+    id_plomero: int = Depends(get_plomero_actual)
 ):
     return plomero_service.cambiar_disponibilidad(db, id_plomero, disponible)
 
@@ -45,8 +47,3 @@ def olvide_password(datos: OlvidePasswordPlomeroRequest, db: Session = Depends(g
 @router.post("/reset-password")
 def reset_password(datos: ResetPasswordPlomeroRequest, db: Session = Depends(get_db)):
     return plomero_service.reset_password(db, datos.token, datos.nueva_password)
-
-
-@router.get("/{id}", response_model=PlomeroResponse)
-def obtener(id: int, db: Session = Depends(get_db)):
-    return plomero_service.obtener_por_id(db, id)

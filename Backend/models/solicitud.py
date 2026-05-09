@@ -5,40 +5,46 @@ from datetime import datetime
 from database import Base
 import enum
 
-# ── Estados posibles de una solicitud ────────────────────────────────────────
+# ── ESTADOS POSIBLES ─────────────────────────────────────────────────────────
+# Esto define las fases de la solicitud para el flujo de "quien acepta primero gana"
 class EstadoSolicitud(enum.Enum):
-    PENDIENTE  = "pendiente"
-    ACEPTADO   = "aceptado"
-    RECHAZADO  = "rechazado"
-    COMPLETADO = "completado"
+    PENDIENTE  = "pendiente"  # Visible para los 5 plomeros sugeridos
+    ACEPTADO   = "aceptado"   # Ya tiene plomero asignado, ocultar para el resto
+    RECHAZADO  = "rechazado"  # El plomero no pudo tomarlo
 
-# ── Modelo principal ──────────────────────────────────────────────────────────
 class Solicitud(Base):
     __tablename__ = "solicitudes"
 
     id_solicitud    = Column(Integer, primary_key=True, index=True)
 
-    # ── Quién pide y a quién se le asigna ────────────────────────────────────
-    id_usuario = Column(Integer, ForeignKey("usuarios.id_usuario"), nullable=False)
-    id_plomero      = Column(Integer, ForeignKey("plomeros.id_plomero"), nullable=True)
-    #                                             ↑ nullable=True porque al crear
-    #                                               la solicitud aún no hay plomero asignado
+    # ── RELACIONES ────────────────────────────────────────────────────────────
+    id_usuario      = Column(Integer, ForeignKey("usuarios.id_usuario"), nullable=False)
+    id_plomero      = Column(Integer, ForeignKey("plomeros.id_plomero"), nullable=True) # Se llena cuando alguien acepta
 
-    # ── Descripción del problema (cargado por el cliente) ────────────────────
+    # ── DATOS DEL PROBLEMA ───────────────────────────────────────────────────
     descripcion_raw = Column(String, nullable=False)
-    imagen_path     = Column(String, nullable=True)   # ruta de la foto adjunta
-    video_path      = Column(String, nullable=True)   # ruta del video adjunto
+    imagen_path     = Column(String, nullable=True)
+    video_path      = Column(String, nullable=True)
 
-    # ── Resultado del diagnóstico de la IA ───────────────────────────────────
-    etiqueta_ia     = Column(String, nullable=True)   # ej: "DESTAPES"
-    urgencia_ia     = Column(String, nullable=True)   # ej: "URGENTE"
-    presupuesto_min = Column(Float,  nullable=True)   # en ARS
-    presupuesto_max = Column(Float,  nullable=True)   # en ARS
+    # ── DIAGNÓSTICO IA ───────────────────────────────────────────────────────
+    etiqueta_ia     = Column(String, nullable=True)   # Clasificación (ej: "Gasista")
+    urgencia_ia     = Column(String, nullable=True)   # Nivel de prioridad
+    presupuesto_min = Column(Float,  nullable=True)
+    presupuesto_max = Column(Float,  nullable=True)
 
-    # ── Estado y fecha ────────────────────────────────────────────────────────
+    # ── NUEVOS CAMPOS PARA EL FLUJO ──────────────────────────────────────────
+    # Guardamos los IDs de los 5 mejores candidatos para que el sistema sepa a quién notificar
+    ids_plomeros_sugeridos = Column(String, nullable=True) # Ejemplo: "12, 45, 7, 23, 9"
+    
+    # Ubicación del evento (Fundamental para Geopy y cercanía)
+    localidad_evento = Column(String, nullable=False) 
+    latitud_evento   = Column(Float,  nullable=True) # Coordenada Y
+    longitud_evento  = Column(Float,  nullable=True) # Coordenada X
+
+    # ── ESTADO Y FECHA ───────────────────────────────────────────────────────
     estado          = Column(Enum(EstadoSolicitud), default=EstadoSolicitud.PENDIENTE)
     fecha           = Column(DateTime, default=datetime.now)
 
-    # ── Relaciones (para acceder a los objetos relacionados fácilmente) ───────
+    # ── RELACIONES ORM ────────────────────────────────────────────────────────
     usuario = relationship("Usuario", foreign_keys=[id_usuario])
     plomero = relationship("Plomero", foreign_keys=[id_plomero])
