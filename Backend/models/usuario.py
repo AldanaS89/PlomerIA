@@ -19,6 +19,8 @@ class Usuario(Base):
     telefono   = Column(String)
     email      = Column(String, unique=True, index=True)
     password_hash = Column(String)
+    # NUEVO
+    rol = Column(String, default="cliente")
 
     # ── COORDENADAS PARA GEOPY ───────────────────────────────────────────────
     # Se calculan automáticamente al registrarse para medir distancias.

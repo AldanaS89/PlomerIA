@@ -24,8 +24,18 @@ def guardar_reset_token(db: Session, id_usuario: int, token: str) -> None:
 def buscar_por_reset_token(db: Session, token: str):
     return db.query(Usuario).filter(Usuario.reset_token == token).first()
 
-def actualizar_password(db: Session, id_usuario: int, nuevo_hash: str) -> None:
+def actualizar_password(
+    db: Session,
+    id_usuario: int,
+    nuevo_hash: str
+):
     usuario = buscar_por_id(db, id_usuario)
-    usuario.password_hash = nuevo_hash
-    usuario.reset_token   = None  # invalida el token después de usarlo
-    db.commit()
+
+    if usuario:
+        usuario.password_hash = nuevo_hash
+        usuario.reset_token = None
+
+        db.commit()
+        db.refresh(usuario)
+
+    return usuario

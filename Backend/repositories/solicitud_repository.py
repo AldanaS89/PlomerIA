@@ -64,3 +64,10 @@ def cambiar_estado(db: Session, id: int, nuevo_estado: str) -> Solicitud | None:
     db.commit()
     db.refresh(solicitud)
     return solicitud
+
+# solicitud_repository.py — agregar esta función
+def guardar_ids_sugeridos(db: Session, id_solicitud: int, ids: list[int]) -> None:
+    solicitud = obtener_por_id(db, id_solicitud)
+    if solicitud:
+        solicitud.ids_plomeros_sugeridos = ", ".join(str(i) for i in ids)
+        db.commit()

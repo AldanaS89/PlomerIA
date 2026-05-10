@@ -23,13 +23,20 @@ def enviar_email(destinatario: str, asunto: str, cuerpo_html: str):
         server.send_message(msg)
 
 def enviar_reset_password(email: str, token: str):
-    # En producción esto apuntaría a la app real
-    link = f"http://localhost:8000/auth/reset-password?token={token}"
+
+    link = f"http://localhost:5173/reset-password?token={token}"
 
     cuerpo = f"""
     <h2>PlomerIA — Restablecer contraseña</h2>
-    <p>Recibimos una solicitud para restablecer tu contraseña.</p>
-    <p>Hacé clic en el siguiente link. Expira en 15 minutos:</p>
+
+    <p>
+      Recibimos una solicitud para restablecer tu contraseña.
+    </p>
+
+    <p>
+      Hacé clic en el siguiente link:
+    </p>
+
     <a href="{link}" style="
         background-color: #1A5CFF;
         color: white;
@@ -37,10 +44,20 @@ def enviar_reset_password(email: str, token: str):
         text-decoration: none;
         border-radius: 6px;
         display: inline-block;
-    ">Restablecer contraseña</a>
-    <p>Si no solicitaste esto, ignorá este email.</p>
+    ">
+        Restablecer contraseña
+    </a>
+
+    <p>
+      Si no solicitaste esto, ignorá este email.
+    </p>
     """
-    enviar_email(email, "PlomerIA — Restablecer contraseña", cuerpo)
+
+    enviar_email(
+        email,
+        "PlomerIA — Restablecer contraseña",
+        cuerpo
+    )
     
 def enviar_solicitud_plomero(
     plomero_email:   str,

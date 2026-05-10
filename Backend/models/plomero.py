@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Float, Boolean, DateTime
+from sqlalchemy import JSON, Column, Integer, String, Float, Boolean, DateTime
 from datetime import datetime
 from database import Base
 
@@ -8,20 +8,20 @@ class Plomero(Base):
     id_plomero        = Column(Integer, primary_key=True, index=True)
     nombre            = Column(String)
     apellido          = Column(String)
-    email             = Column(String, unique=True, index=True)
+    email             = Column(String, unique=True, index=True, nullable=False)
     telefono          = Column(String)
-    especialidad      = Column(String)
-    otra_especialidad = Column(String, nullable=True)
+    especialidades      = Column(JSON)
+    otra_especialidades = Column(String, nullable=True)
     genero            = Column(String)
     localidad         = Column(String)
-    latitud           = Column(Float, nullable=True)   # ← agregar
-    longitud          = Column(Float, nullable=True)   # ← agregar
+    latitud           = Column(Float)   
+    longitud          = Column(Float)   
     atiende_urgencias = Column(Boolean, default=False)
     disponible_ahora  = Column(Boolean, default=True)
     puntuacion        = Column(Float, default=0.0)
     total_trabajos    = Column(Integer, default=0)
     matricula_gas     = Column(Boolean, default=False)
     password_hash     = Column(String)
-    fecha_registro    = Column(DateTime, default=datetime.now)
+    fecha_registro = Column(DateTime, default=datetime.utcnow)
     reset_token = Column(String, nullable=True)
     

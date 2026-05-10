@@ -1,12 +1,14 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from geopy.distance import geodesic
+from services import solicitud_service
+from utils.auth_plomeros import get_plomero_actual
 from database import get_db
 from models.solicitud import Solicitud, EstadoSolicitud
 from models.plomero import Plomero
 from schemas.solicitud import SolicitudCreate, SolicitudResponse
 
-router = APIRouter(prefix="", tags=["Solicitudes"])
+router = APIRouter(prefix="/solicitudes", tags=["Solicitudes"])
 
 def buscar_5_mejores(db: Session, lat: float, lon: float, solo_mujeres: bool = False):
     # 1. MODIFICACIÓN: Quitamos temporalmente el filtro de 'disponible_ahora' 
@@ -41,7 +43,7 @@ def buscar_5_mejores(db: Session, lat: float, lon: float, solo_mujeres: bool = F
     candidatos.sort(key=lambda x: (x['distancia'], -x['puntuacion']))
     
     # Devolvemos los IDs de los 5 mejores
-    return ", ".join([str(c['id']) for c in candidatos[:5]])
+    return [c["id"] for c in candidatos[:5]]
     
 @router.post("/", response_model=SolicitudResponse)
 async def crear_solicitud(data: SolicitudCreate, db: Session = Depends(get_db)):
@@ -77,3 +79,14 @@ async def crear_solicitud(data: SolicitudCreate, db: Session = Depends(get_db)):
     
     nueva_solicitud.plomeros_sugeridos_detallados = detalles
     return nueva_solicitud
+
+@router.get("/plomero/me")
+def mis_solicitudes(
+    db: Session = Depends(get_db),
+    id_plomero: int = Depends(get_plomero_actual)
+):
+    return solicitud_service.por_plomero(db, id_plomero)
+
+@router.get("/buscar")
+def buscar(q: str, db: Session = Depends(get_db)):
+    return solicitud_service.buscar_por_texto(db, q)

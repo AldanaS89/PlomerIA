@@ -8,7 +8,7 @@ from schemas.plomero import (PlomeroRequest, PlomeroResponse,
 from services import plomero_service
 from utils.auth_plomeros import get_plomero_actual
 
-router = APIRouter(tags=["Plomeros"])
+router = APIRouter(prefix="/plomeros", tags=["Plomeros"])
 
 @router.post("/registro")
 def registrar(datos: PlomeroRequest, db: Session = Depends(get_db)):

@@ -32,29 +32,40 @@ def _crear_token(id_plomero: int) -> str:
 
 
 def registrar(db: Session, datos: PlomeroRequest) -> dict:
+
     if plomero_repository.buscar_por_email(db, datos.email):
         raise HTTPException(status_code=400, detail="El email ya está registrado")
 
-    latitud, longitud = _geocodificar(datos.direccion, datos.localidad)
+    latitud, longitud = _geocodificar(
+        datos.localidad,  # 👈 corregido (no direccion)
+        datos.localidad
+    )
 
     nuevo = Plomero(
         nombre=datos.nombre,
         apellido=datos.apellido,
         email=datos.email,
         telefono=datos.telefono,
-        especialidad=datos.especialidad,
+
+        especialidades=datos.especialidades,  
+
         genero=datos.genero,
         localidad=datos.localidad,
         latitud=latitud,
         longitud=longitud,
+
         atiende_urgencias=datos.atiende_urgencias,
         matricula_gas=datos.matricula_gas,
+
         password_hash=pwd_context.hash(datos.password),
+
         disponible_ahora=True,
         puntuacion=0.0,
         total_trabajos=0,
     )
+
     plomero = plomero_repository.crear_plomero(db, nuevo)
+
     token = _crear_token(plomero.id_plomero)
 
     return {
@@ -102,10 +113,18 @@ def buscar(
     db: Session,
     localidad: Optional[str] = None,
     genero: Optional[str] = None,
-    especialidad: Optional[str] = None,
+    especialidades: Optional[list[str]] = None,
     atiende_urgencias: Optional[bool] = None,
 ) -> list[PlomeroResponse]:
-    plomeros = plomero_repository.filtrar(db, localidad, genero, especialidad, atiende_urgencias)
+
+    plomeros = plomero_repository.filtrar(
+        db,
+        localidad,
+        genero,
+        especialidades,
+        atiende_urgencias
+    )
+
     return [PlomeroResponse.model_validate(p) for p in plomeros]
 
 
