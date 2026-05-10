@@ -16,20 +16,29 @@ const Login = () => {
     try {
       // 1. Petición al backend
       const res = await api.post("/usuarios/login", { email, password });
-
-      // 2. Guardar en localStorage con el formato que espera tu interceptor
+      console.log("DATOS DEL BACKEND:", res.data);
+      // 2. Guardar en localStorage
+      // Es vital que 'rol' se guarde correctamente aquí
       const authData = {
         state: {
           token: res.data.access_token,
-          user: res.data.user, // nombre, rol, etc.
+          user: {
+            id: res.data.id_usuario,
+            nombre: res.data.nombre,
+            rol: res.data.rol, // <--- Verifica que esto sea 'plomero' o 'cliente'
+          },
         },
       };
       localStorage.setItem("plomeria-auth", JSON.stringify(authData));
 
-      // 3. Redirigir según el rol que devuelva tu API
+      // 3. REDIRECCIÓN DINÁMICA
+      // Usamos el rol que devuelve el servidor (res.data.rol)
       if (res.data.rol === "plomero") {
         navigate("/plomero");
+      } else if (res.data.rol === "cliente") {
+        navigate("/cliente");
       } else {
+        // Por si acaso el rol viene distinto (ej: "usuario" o "admin")
         navigate("/cliente");
       }
     } catch (err) {
