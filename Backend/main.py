@@ -7,7 +7,7 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from database import engine, Base
-from routers import usuarios_routes, plomeros_routes, solicitudes, disponibilidad, auth
+from routers import usuarios_routes, plomeros_routes, solicitudes, disponibilidad, auth,calificaciones_routes
 
 app = FastAPI(title="PlomerIA - Zona Sur", redirect_slashes=False)
 
@@ -42,7 +42,10 @@ app.include_router(
     disponibilidad.router,
     prefix=API_PREFIX
 )
-
+app.include_router(
+    calificaciones_routes.router,
+    prefix=API_PREFIX
+)
 @app.get("/")
 def inicio():
     return {"mensaje": "Servidor de PlomerIA activo"}
