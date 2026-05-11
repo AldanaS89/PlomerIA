@@ -1,0 +1,97 @@
+"""
+cargar_plomeros.py
+==================
+Importa los 100 plomeros de plomeros_enriquecido.json a la base de datos.
+
+Uso (desde la carpeta Backend/):
+    python -m scripts.cargar_plomeros
+
+Podés correrlo varias veces — si el email ya existe, lo saltea.
+"""
+
+import sys
+import os
+import json
+from pathlib import Path
+
+# ─── Path portable: funciona en cualquier PC ──────────────────────────────────
+# Cuando se corre con -m desde Backend/, el cwd ya es Backend/.
+# Esta línea cubre el caso en que se corra directamente el archivo.
+BACKEND_DIR = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(BACKEND_DIR))
+os.chdir(BACKEND_DIR)  # necesario para que SQLite encuentre la base de datos
+
+# ─── Imports del proyecto ─────────────────────────────────────────────────────
+from database import SessionLocal, engine, Base
+from models.plomero import Plomero
+from services.auth_service import hashear_password
+
+# ─── Crear tablas si no existen ───────────────────────────────────────────────
+Base.metadata.create_all(bind=engine)
+
+# ─── Cargar JSON (busca en data/ junto a este script) ─────────────────────────
+json_path = Path(__file__).resolve().parent / "plomeros_enriquecido.json"
+
+if not json_path.exists():
+    print(f"❌ No se encontró el archivo: {json_path}")
+    print("   Asegurate de que plomeros_enriquecido.json esté en Backend/scripts/")
+    sys.exit(1)
+
+with open(json_path, encoding="utf-8") as f:
+    plomeros_data = json.load(f)
+
+print(f"📋 {len(plomeros_data)} plomeros encontrados en el JSON\n")
+
+# ─── Cargar en la base de datos ───────────────────────────────────────────────
+db = SessionLocal()
+
+cargados = 0
+saltados = 0
+errores  = 0
+
+try:
+    for datos in plomeros_data:
+        # Saltar si el email ya existe
+        existe = db.query(Plomero).filter(Plomero.email == datos["email"]).first()
+        if existe:
+            saltados += 1
+            continue
+
+        try:
+            plomero = Plomero(
+                nombre            = datos["nombre"],
+                apellido          = datos["apellido"],
+                email             = datos["email"],
+                password_hash     = hashear_password(datos["password"]),
+                telefono          = datos["telefono"],
+                localidad         = datos["localidad"],
+                latitud           = datos.get("latitud"),
+                longitud          = datos.get("longitud"),
+                especialidades    = datos["especialidades"],
+                genero            = datos["genero"],
+                atiende_urgencias = datos["atiende_urgencias"],
+                matricula_gas     = datos.get("matricula_gas", False),
+                puntuacion        = datos["puntuacion"],
+                total_trabajos    = datos["total_trabajos"],
+                disponible_ahora  = datos["disponible_ahora"],
+                agenda            = datos.get("agenda", {}),
+                foto_perfil_path  = datos.get("foto_perfil_path"),
+            )
+            db.add(plomero)
+            db.commit()
+            cargados += 1
+            print(f"  ✓ {datos['nombre']} {datos['apellido']} — {datos['localidad']}")
+
+        except Exception as e:
+            db.rollback()
+            errores += 1
+            print(f"  ✗ Error con {datos.get('email', '?')}: {e}")
+
+finally:
+    db.close()
+
+print(f"\n{'─' * 50}")
+print(f"  Cargados : {cargados}")
+print(f"  Saltados : {saltados}  (ya existían en la BD)")
+print(f"  Errores  : {errores}")
+print(f"{'─' * 50}")

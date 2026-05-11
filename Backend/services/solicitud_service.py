@@ -108,3 +108,10 @@ def rechazar(db: Session, id_solicitud: int, id_plomero: int) -> SolicitudRespon
 
 def completar(db: Session, id_solicitud: int, id_plomero: int) -> SolicitudResponse:
     return _cambiar_estado_plomero(db, id_solicitud, id_plomero, EstadoSolicitud.COMPLETADO)
+
+def buscar_por_texto(db, q: str):
+    from models.solicitud import Solicitud
+    query = db.query(Solicitud)
+    if q:
+        query = query.filter(Solicitud.descripcion_raw.ilike(f"%{q}%"))
+    return query.order_by(Solicitud.fecha.desc()).all()

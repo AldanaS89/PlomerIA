@@ -1,39 +1,53 @@
+// src/pages/Login.jsx
 import { useState } from "react";
 import { Eye, EyeOff } from "lucide-react";
-import { useNavigate } from "react-router-dom";
 import api from "../services/api";
+import { useAuthStore } from "../store/authStore";
 
-const Login = () => {
-  const navigate = useNavigate();
+// Recibe onNav desde App.jsx para navegar sin React Router
+const Login = ({ onNav }) => {
+  const setAuth  = useAuthStore((s) => s.setAuth);
   const [showPass, setShowPass] = useState(false);
-  const [email, setEmail] = useState("");
+  const [email,    setEmail]    = useState("");
   const [password, setPassword] = useState("");
-  const [loading, setLoading] = useState(false);
+  const [loading,  setLoading]  = useState(false);
+  const [error,    setError]    = useState("");
 
   const handleLogin = async (e) => {
     e.preventDefault();
+    setError("");
     setLoading(true);
     try {
-      // 1. Petición al backend
-      const res = await api.post("/usuarios/login", { email, password });
+      let res;
+      let rol;
 
-      // 2. Guardar en localStorage con el formato que espera tu interceptor
-      const authData = {
-        state: {
-          token: res.data.access_token,
-          user: res.data.user, // nombre, rol, etc.
-        },
+      try {
+        // Intentar como cliente primero
+        res = await api.post("/usuarios/login", { email, password });
+        rol = res.data.rol || "cliente";
+      } catch {
+        // Si falla, intentar como plomero
+        res = await api.post("/plomeros/login", { email, password });
+        rol = "plomero";
+      }
+
+      const usuario = {
+        id:     res.data.id_usuario ?? res.data.id_plomero,
+        nombre: res.data.nombre,
+        rol,
       };
-      localStorage.setItem("plomeria-auth", JSON.stringify(authData));
 
-      // 3. Redirigir según el rol que devuelva tu API
-      if (res.data.rol === "plomero") {
-        navigate("/plomero");
+      // Zustand persist lo guarda en localStorage automáticamente
+      setAuth(res.data.access_token, usuario);
+
+      // Navegar según rol usando el sistema de App.jsx
+      if (rol === "plomero") {
+        onNav("registro-plomero-home"); // ajustá al nombre de view que uses para HomePlomero
       } else {
-        navigate("/cliente");
+        onNav("app"); // App.jsx monta <HomeCliente> cuando view === "app"
       }
     } catch (err) {
-      alert(err.response?.data?.detail || "Error al iniciar sesión");
+      setError(err.response?.data?.detail || "Email o contraseña incorrectos");
     } finally {
       setLoading(false);
     }
@@ -42,6 +56,7 @@ const Login = () => {
   return (
     <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4 font-sans">
       <div className="bg-white p-10 rounded-[2.5rem] shadow-xl w-full max-w-md border border-slate-100">
+
         {/* Logo */}
         <div className="flex justify-center mb-6">
           <div className="bg-blue-600 p-2 rounded-xl flex items-center gap-2 px-4 py-2 shadow-lg shadow-blue-100">
@@ -59,7 +74,6 @@ const Login = () => {
         </p>
 
         <form className="space-y-5" onSubmit={handleLogin}>
-          {/* Email */}
           <div>
             <label className="block text-[10px] font-black text-slate-400 mb-1 uppercase tracking-widest ml-2">
               Correo Electrónico
@@ -74,7 +88,6 @@ const Login = () => {
             />
           </div>
 
-          {/* Password */}
           <div className="relative">
             <label className="block text-[10px] font-black text-slate-400 mb-1 uppercase tracking-widest ml-2">
               Contraseña
@@ -96,13 +109,18 @@ const Login = () => {
             </button>
           </div>
 
+          {/* Olvidé contraseña → onNav en lugar de navigate */}
           <button
             type="button"
-            onClick={() => navigate("/olvide-password")}
+            onClick={() => onNav("olvide-password")}
             className="text-blue-500 text-xs font-bold w-full text-center hover:underline transition-all"
           >
             ¿Olvidaste tu contraseña?
           </button>
+
+          {error && (
+            <p className="text-red-500 text-sm text-center">{error}</p>
+          )}
 
           <button
             type="submit"
@@ -120,40 +138,22 @@ const Login = () => {
             ¿Primera vez?
           </p>
           <div className="grid grid-cols-2 gap-4">
-            {/* Botón Cliente */}
             <button
-              onClick={() =>
-                navigate("/registro", { state: { rolInicial: "usuario" } })
-              }
+              onClick={() => onNav("registro")}
               className="flex flex-col items-center p-5 border border-blue-100 rounded-[2rem] bg-blue-50/50 hover:bg-blue-100 transition-all group shadow-sm shadow-blue-50"
             >
-              <span className="text-3xl mb-2 group-hover:scale-110 transition-transform">
-                🏠
-              </span>
-              <span className="text-[10px] font-extrabold text-blue-600 uppercase">
-                Soy cliente
-              </span>
-              <span className="text-[9px] text-blue-400 mt-1 text-center leading-tight">
-                Necesito un plomero
-              </span>
+              <span className="text-3xl mb-2 group-hover:scale-110 transition-transform">🏠</span>
+              <span className="text-[10px] font-extrabold text-blue-600 uppercase">Soy cliente</span>
+              <span className="text-[9px] text-blue-400 mt-1 text-center leading-tight">Necesito un plomero</span>
             </button>
 
-            {/* Botón Plomero */}
             <button
-              onClick={() =>
-                navigate("/registro", { state: { rolInicial: "plomero" } })
-              }
+              onClick={() => onNav("registro-plomero")}
               className="flex flex-col items-center p-5 border border-emerald-100 rounded-[2rem] bg-emerald-50/50 hover:bg-emerald-100 transition-all group shadow-sm shadow-emerald-50"
             >
-              <span className="text-3xl mb-2 group-hover:scale-110 transition-transform">
-                🔧
-              </span>
-              <span className="text-[10px] font-extrabold text-emerald-600 uppercase">
-                Soy plomero
-              </span>
-              <span className="text-[9px] text-emerald-400 mt-1 text-center leading-tight">
-                Quiero ofrecer servicios
-              </span>
+              <span className="text-3xl mb-2 group-hover:scale-110 transition-transform">🔧</span>
+              <span className="text-[10px] font-extrabold text-emerald-600 uppercase">Soy plomero</span>
+              <span className="text-[9px] text-emerald-400 mt-1 text-center leading-tight">Quiero ofrecer servicios</span>
             </button>
           </div>
         </div>

@@ -4,7 +4,7 @@ import os
 from database import SessionLocal
 from models.plomero import Plomero
 # IMPORTANTE: Importamos la herramienta de seguridad
-from utils.seguridad import hashear_password 
+from services.auth_service import hashear_password
 
 def cargar_desde_json():
     db = SessionLocal()
