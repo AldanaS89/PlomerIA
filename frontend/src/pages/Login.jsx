@@ -42,9 +42,9 @@ const Login = ({ onNav }) => {
 
       // Navegar según rol usando el sistema de App.jsx
       if (rol === "plomero") {
-        onNav("registro-plomero-home"); // ajustá al nombre de view que uses para HomePlomero
+        onNav("plomero");
       } else {
-        onNav("app"); // App.jsx monta <HomeCliente> cuando view === "app"
+        onNav("app");
       }
     } catch (err) {
       setError(err.response?.data?.detail || "Email o contraseña incorrectos");

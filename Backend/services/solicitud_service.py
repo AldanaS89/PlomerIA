@@ -20,25 +20,35 @@ def crear_solicitud(db: Session, datos: SolicitudCreate, id_usuario: int) -> dic
 
     solicitud = solicitud_repository.crear(db, id_usuario, datos, diagnostico)
 
-    usuario = usuario_repository.buscar_por_id(db, id_usuario)
-    lat = usuario.latitud  if usuario else None
-    lon = usuario.longitud if usuario else None
+    # ── Usar los IDs seleccionados por el cliente ─────────────────────────────
+    ids_seleccionados = datos.ids_plomeros_seleccionados or []
 
-    plomeros = plomero_repository.buscar_para_solicitud(
-        db,
-        especialidad      = diagnostico["etiqueta_ia"],
-        lat_usuario       = lat,
-        lon_usuario       = lon,
-        atiende_urgencias = es_urgente,
-        limite            = 3,
-    )
+    if ids_seleccionados:
+        # El cliente eligió sus plomeros → usarlos directamente
+        plomeros = [
+            p for pid in ids_seleccionados
+            if (p := plomero_repository.buscar_por_id(db, pid))
+        ]
+    else:
+        # Fallback: calcular automáticamente (compatibilidad)
+        usuario = usuario_repository.buscar_por_id(db, id_usuario)
+        lat = usuario.latitud  if usuario else None
+        lon = usuario.longitud if usuario else None
 
-    if not plomeros:
         plomeros = plomero_repository.buscar_para_solicitud(
-            db, lat_usuario=lat, lon_usuario=lon, limite=3
+            db,
+            especialidades    = diagnostico["etiqueta_ia"],
+            lat_usuario       = lat,
+            lon_usuario       = lon,
+            atiende_urgencias = es_urgente,
+            limite            = 5,
         )
+        if not plomeros:
+            plomeros = plomero_repository.buscar_para_solicitud(
+                db, lat_usuario=lat, lon_usuario=lon, limite=5
+            )
 
-    # Guardar IDs de plomeros notificados en la solicitud
+    # Guardar exactamente los IDs notificados
     if plomeros:
         solicitud_repository.guardar_ids_sugeridos(
             db, solicitud.id_solicitud, [p.id_plomero for p in plomeros]

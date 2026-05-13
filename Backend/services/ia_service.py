@@ -56,7 +56,15 @@ def _fallback(descripcion: str) -> DiagnosticoIA:
     else:
         etiqueta = "PLOMERIA_GENERAL"
 
-    if any(k in desc for k in ["urgente", "inunda", "fuga", "olor a gas", "sin agua"]):
+    if any(k in desc for k in [
+        "urgente", "urgencia", "emergencia",
+        "inunda", "inundación", "inundacion",
+        "fuga", "pérdida", "perdida", "pierde", "pierde agua",
+        "olor a gas", "sin agua", "no tengo agua",
+        "explota", "revienta", "roto", "no cierra", "no para",
+        "chorrea", "sale agua", "agua por todos lados",
+        "caño roto", "cano roto", "cañería rota", "caneria rota",
+    ]):
         urgencia = "URGENTE"
     else:
         urgencia = "NORMAL"

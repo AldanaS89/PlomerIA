@@ -5,14 +5,30 @@ import { useAuthStore } from "../store/authStore"; // zustand store
 // ─── CONSTANTS ───────────────────────────────────────────────────────────────
 
 const BADGE_STYLES = {
-  Destapes:       { bg: "#E0F2FE", text: "#0369A1" },
-  Urgencias:      { bg: "#FEE2E2", text: "#B91C1C" },
-  "Obra general": { bg: "#DCFCE7", text: "#15803D" },
-  Instalaciones:  { bg: "#F3E8FF", text: "#7E22CE" },
-  DESTAPES:       { bg: "#E0F2FE", text: "#0369A1" },
-  URGENCIAS:      { bg: "#FEE2E2", text: "#B91C1C" },
-  OBRA:           { bg: "#DCFCE7", text: "#15803D" },
-  INSTALACIONES:  { bg: "#F3E8FF", text: "#7E22CE" },
+  Destapes:          { bg: "#E0F2FE", text: "#0369A1" },
+  Urgencias:         { bg: "#FEE2E2", text: "#B91C1C" },
+  "Obra general":    { bg: "#DCFCE7", text: "#15803D" },
+  Instalaciones:     { bg: "#F3E8FF", text: "#7E22CE" },
+  "Plomería general":{ bg: "#EFF6FF", text: "#1D4ED8" },
+  "Gas matriculado": { bg: "#FEF9C3", text: "#854D0E" },
+  Calefacción:       { bg: "#FEE2E2", text: "#9F1239" },
+  Filtraciones:      { bg: "#ECFDF5", text: "#065F46" },
+  Obra:              { bg: "#DCFCE7", text: "#15803D" },
+  DESTAPES:          { bg: "#E0F2FE", text: "#0369A1" },
+  URGENCIAS:         { bg: "#FEE2E2", text: "#B91C1C" },
+  OBRA:              { bg: "#DCFCE7", text: "#15803D" },
+  INSTALACIONES:     { bg: "#F3E8FF", text: "#7E22CE" },
+};
+
+// Traducción de keys del enum a texto legible
+const ESP_LABELS = {
+  PLOMERIA_GENERAL:  "Plomería general",
+  DESTAPES:          "Destapes",
+  GAS_MATRICULADO:   "Gas matriculado",
+  OBRA:              "Obra",
+  FILTRACIONES:      "Filtraciones",
+  CALEFACCION:       "Calefacción",
+  OTRA:              "Otra especialidad",
 };
 
 const URGENCIA_KEYWORDS = ["inunda", "pérdida", "perder", "no cierra", "roto", "explota", "revienta", "urgente", "emergencia"];
@@ -47,7 +63,8 @@ function Stars({ val = 0, size = 13, interactive = false, onRate }) {
 }
 
 function Badge({ label }) {
-  const s = BADGE_STYLES[label] || { bg: "#F3F4F6", text: "#374151" };
+  // Busca el estilo por el label legible o por el key del enum
+  const s = BADGE_STYLES[label] || BADGE_STYLES[label?.toUpperCase()] || { bg: "#F3F4F6", text: "#374151" };
   return (
     <span style={{
       background: s.bg, color: s.text, fontSize: "11px", fontWeight: "600",
@@ -106,9 +123,10 @@ function ErrorBanner({ msg, onClose }) {
 
 function Header({ screen, onNav, notifCount, onLogout, user }) {
   const tabs = [
-    { key: "problema",      label: "Inicio",       icon: "🏠" },
-    { key: "historial",     label: "Mis trabajos", icon: "📋" },
-    { key: "notificaciones",label: "Alertas",      icon: "🔔", badge: notifCount },
+    { key: "problema",          label: "Inicio",             icon: "🏠" },
+    { key: "mi-solicitud",      label: "Mi solicitud",       icon: "📡" },
+    { key: "trabajos-finalizados", label: "Finalizados",     icon: "✅" },
+    { key: "notificaciones",    label: "Alertas",            icon: "🔔", badge: notifCount },
   ];
   return (
     <div style={{
@@ -386,7 +404,7 @@ function TurnoSelector({ plomero, turnoActual, onSelect }) {
 
 // ─── SCREEN: RESULTADOS ───────────────────────────────────────────────────────
 
-function ScreenResultados({ problema, urgencia, onEnviar }) {
+function ScreenResultados({ problema, urgencia, idsExcluidos = [], onEnviar }) {
   const [plomeros, setPlomeros]   = useState([]);
   const [loading, setLoading]     = useState(true);
   const [error, setError]         = useState("");
@@ -397,51 +415,67 @@ function ScreenResultados({ problema, urgencia, onEnviar }) {
   const [enviado, setEnviado]     = useState(false);
   const [solicitudResp, setSolicitud] = useState(null);
   const [coords, setCoords]       = useState(null);
-  const [geoMsg, setGeoMsg]       = useState("📍 Obteniendo tu ubicación...");
+  const [geoMsg, setGeoMsg]       = useState("");
+  const coordsRef  = useRef(null);
+  const mountedRef = useRef(false); // para saber si ya hicimos la búsqueda inicial
 
-  // Fix 2: Geolocalización real
+  // Función de búsqueda reutilizable
+  const buscar = useCallback(async (genero, lat, lon) => {
+    setLoading(true); setError(""); setSelec([]); setTurnos({});
+    try {
+      const res = await api.post("/plomeros/sugerir", {
+        descripcion:      problema,
+        solo_mujeres:     genero === "F",
+        urgencia_forzada: urgencia, // le decimos al backend que el cliente detectó urgencia
+        latitud:          lat ?? -34.85,
+        longitud:         lon ?? -58.38,
+      });
+      const todos = Array.isArray(res.data) ? res.data : [];
+      // Excluir plomeros que ya no respondieron en solicitudes anteriores
+      const excluidos = new Set(idsExcluidos);
+      setPlomeros(excluidos.size > 0 ? todos.filter(p => !excluidos.has(p.id_plomero)) : todos);
+    } catch (e) {
+      setError(e.response?.data?.detail || e.message);
+    } finally {
+      setLoading(false);
+    }
+  }, [problema, urgencia]);
+
+  // Al montar: obtener coords y hacer búsqueda inicial (género = todos)
   useEffect(() => {
-    if (!navigator.geolocation) { setGeoMsg(""); return; }
+    if (!navigator.geolocation) {
+      buscar("todos", null, null);
+      mountedRef.current = true;
+      return;
+    }
+    setGeoMsg("📍 Obteniendo tu ubicación...");
     navigator.geolocation.getCurrentPosition(
       pos => {
-        setCoords({ lat: pos.coords.latitude, lon: pos.coords.longitude });
+        const lat = pos.coords.latitude;
+        const lon = pos.coords.longitude;
+        coordsRef.current = { lat, lon };
+        setCoords({ lat, lon });
         setGeoMsg("📍 Ubicación obtenida");
         setTimeout(() => setGeoMsg(""), 2000);
+        buscar(filtroGenero, lat, lon);
+        mountedRef.current = true;
       },
       () => {
         setGeoMsg("📍 Sin GPS — usando ubicación por defecto");
         setTimeout(() => setGeoMsg(""), 3000);
+        buscar(filtroGenero, null, null);
+        mountedRef.current = true;
       },
       { timeout: 6000 }
     );
-  }, []);
+  }, []);  // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Cuando cambia el filtro de género (después del montaje inicial)
   useEffect(() => {
-    const cargar = async () => {
-      setLoading(true); setError(""); setSelec([]); setTurnos({});
-      try {
-        const res = await api.post("/plomeros/sugerir", {
-          descripcion:  problema,
-          solo_mujeres: filtroGenero === "F",
-          latitud:      coords?.lat ?? -34.85,
-          longitud:     coords?.lon ?? -58.38,
-        });
-        // Fix 5: Deduplicar por id_plomero
-        const vistos = new Set();
-        const unicos = (Array.isArray(res.data) ? res.data : []).filter(p => {
-          if (vistos.has(p.id_plomero)) return false;
-          vistos.add(p.id_plomero);
-          return true;
-        });
-        setPlomeros(unicos);
-      } catch (e) {
-        setError(e.response?.data?.detail || e.message);
-      } finally {
-        setLoading(false);
-      }
-    };
-    cargar();
-  }, [problema, filtroGenero, coords]);
+    if (!mountedRef.current) return; // evitar doble búsqueda al montar
+    const c = coordsRef.current;
+    buscar(filtroGenero, c?.lat, c?.lon);
+  }, [filtroGenero]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const toggle = id => setSelec(prev =>
     prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
@@ -454,11 +488,12 @@ function ScreenResultados({ problema, urgencia, onEnviar }) {
     setEnviando(true);
     try {
       const resp = await api.post("/solicitudes/", {
-        descripcion_raw:  problema,
-        solo_mujeres:     filtroGenero === "F",
-        localidad_evento: "Sin especificar",
-        latitud_evento:   coords?.lat ?? -34.85,
-        longitud_evento:  coords?.lon ?? -58.38,
+        descripcion_raw:           problema,
+        solo_mujeres:              filtroGenero === "F",
+        localidad_evento:          "Sin especificar",
+        latitud_evento:            coords?.lat ?? -34.85,
+        longitud_evento:           coords?.lon ?? -58.38,
+        ids_plomeros_seleccionados: seleccionados,  // ← los que el cliente eligió
       });
       setSolicitud(resp.data);
       setEnviado(true);
@@ -475,19 +510,13 @@ function ScreenResultados({ problema, urgencia, onEnviar }) {
       <style>{`@keyframes pulse{0%,100%{transform:scale(1)}50%{transform:scale(1.12)}}`}</style>
       <div style={{ fontSize: "56px", marginBottom: "16px", animation: "pulse 1s ease infinite" }}>📡</div>
       <h2 style={{ fontFamily: "'DM Sans',sans-serif", fontWeight: "800",
-        fontSize: "22px", color: "#0F172A", margin: "0 0 8px" }}>Solicitud enviada</h2>
+        fontSize: "22px", color: "#0F172A", margin: "0 0 8px" }}>¡Solicitud enviada!</h2>
       <p style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "15px",
-        color: "#64748B", maxWidth: "320px" }}>
-        Notificamos a los profesionales.{" "}
-        {urgencia ? "Tienen 30 minutos para responder." : "Tienen 3 horas para responder."}
+        color: "#64748B", maxWidth: "340px", lineHeight: "1.6" }}>
+        {urgencia
+          ? "Notificamos a los profesionales que atienden urgencias. Te avisamos cuando alguien acepte."
+          : "Notificamos a los profesionales seleccionados. Te avisamos cuando alguien acepte el trabajo."}
       </p>
-      {solicitudResp && (
-        <div style={{ marginTop: "16px", background: "#F0FDF4", border: "1.5px solid #86EFAC",
-          borderRadius: "12px", padding: "12px 20px", fontFamily: "'DM Sans',sans-serif",
-          fontSize: "13px", color: "#15803D" }}>
-          Solicitud #{solicitudResp.id_solicitud} · Estado: {solicitudResp.estado}
-        </div>
-      )}
     </div>
   );
 
@@ -653,15 +682,17 @@ function ScreenResultados({ problema, urgencia, onEnviar }) {
                     <div>
                       <div style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "10px",
                         fontWeight: "700", color: "#94A3B8", textTransform: "uppercase",
-                        letterSpacing: "0.8px", marginBottom: "7px" }}>Especialidad</div>
+                        letterSpacing: "0.8px", marginBottom: "7px" }}>Trabaja en</div>
                       <div style={{ display: "flex", flexWrap: "wrap", gap: "5px" }}>
-                        <Badge label={p.especialidad || p.etiqueta_ia || "General"} />
+                        {(p.especialidades || [p.especialidad || "PLOMERIA_GENERAL"]).map(esp => (
+                          <Badge key={esp} label={ESP_LABELS[esp] || esp} />
+                        ))}
                         {p.atiende_urgencias && <Badge label="Urgencias" />}
                       </div>
                     </div>
 
-                    {/* Fix 4: Selector de turno según agenda del plomero */}
-                    {isSelected && (
+                    {/* Turno: solo si NO es urgencia */}
+                    {isSelected && !urgencia && (
                       <TurnoSelector
                         plomero={p}
                         turnoActual={turnos[p.id_plomero]}
@@ -669,12 +700,17 @@ function ScreenResultados({ problema, urgencia, onEnviar }) {
                       />
                     )}
 
-                    {p.urgencia_ia === "URGENTE" && urgencia && (
-                      <div style={{ background: "#FEF2F2", border: "1px solid #FECACA",
-                        borderRadius: "8px", padding: "6px 10px",
+                    {/* Urgencia: mostrar disponibilidad inmediata */}
+                    {urgencia && (
+                      <div style={{
+                        background: p.disponible_ahora ? "#F0FDF4" : "#FEF2F2",
+                        border: `1px solid ${p.disponible_ahora ? "#86EFAC" : "#FECACA"}`,
+                        borderRadius: "8px", padding: "7px 12px",
                         fontFamily: "'DM Sans',sans-serif", fontSize: "12px",
-                        color: "#B91C1C", fontWeight: "600" }}>
-                        🚨 Atiende urgencias ahora
+                        color: p.disponible_ahora ? "#15803D" : "#B91C1C",
+                        fontWeight: "600",
+                      }}>
+                        {p.disponible_ahora ? "🟢 Disponible ahora" : "🔴 No disponible en este momento"}
                       </div>
                     )}
 
@@ -772,14 +808,6 @@ function ScreenEstado({ solicitud, onNav }) {
         fontSize: "22px", color: "#0F172A", letterSpacing: "-0.4px", margin: "0 0 24px" }}>
         Estado del trabajo
       </h1>
-
-      {solicitud && (
-        <div style={{ background: "#F8FAFC", borderRadius: "12px",
-          padding: "12px 16px", marginBottom: "24px",
-          fontFamily: "'DM Sans',sans-serif", fontSize: "13px", color: "#64748B" }}>
-          Solicitud #{solicitud.id_solicitud} · {solicitud.descripcion_raw}
-        </div>
-      )}
 
       {/* Timeline */}
       <div style={{ background: "#fff", borderRadius: "20px",
@@ -914,105 +942,421 @@ function ScreenEstado({ solicitud, onNav }) {
   );
 }
 
-// ─── SCREEN: HISTORIAL ────────────────────────────────────────────────────────
+// ─── SCREEN: MI SOLICITUD ────────────────────────────────────────────────────
 
-function ScreenHistorial({ historial, loading, error }) {
-  const [detalle, setDetalle] = useState(null);
+function ScreenMiSolicitud({ historial, loading, onNav }) {
+  const activa = historial
+    .filter(h => {
+      const e = (h.estado || "").toLowerCase();
+      return e === "pendiente" || e === "aceptado";
+    })
+    .sort((a, b) => new Date(b.fecha) - new Date(a.fecha))[0];
+
+  if (loading) return (
+    <div style={{ display: "flex", justifyContent: "center", padding: "80px" }}>
+      <Spinner size={36} />
+    </div>
+  );
+
+  if (!activa) return (
+    <div style={{ maxWidth: "600px", margin: "0 auto", padding: "60px 24px", textAlign: "center" }}>
+      <div style={{ fontSize: "52px", marginBottom: "16px" }}>📭</div>
+      <h2 style={{ fontFamily: "'DM Sans',sans-serif", fontWeight: "800",
+        fontSize: "20px", color: "#0F172A", margin: "0 0 8px" }}>
+        No tenés solicitudes activas
+      </h2>
+      <p style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "14px",
+        color: "#64748B", marginBottom: "24px" }}>
+        Cuando enviés una solicitud, vas a poder seguir su estado acá.
+      </p>
+      <button onClick={() => onNav("problema")} style={{
+        background: "linear-gradient(135deg,#3B82F6,#2563EB)",
+        color: "#fff", border: "none", borderRadius: "12px",
+        padding: "12px 28px", fontFamily: "'DM Sans',sans-serif",
+        fontWeight: "700", fontSize: "14px", cursor: "pointer",
+      }}>Solicitar un plomero →</button>
+    </div>
+  );
+
+  const estado = (activa.estado || "").toUpperCase();
+
+  // Calcular si la solicitud venció (3hs normal, 30min urgencia)
+  const fechaSolicitud = activa.fecha ? new Date(activa.fecha) : null;
+  const ahora = new Date();
+  const minutosTranscurridos = fechaSolicitud
+    ? (ahora - fechaSolicitud) / 1000 / 60
+    : 0;
+  const esUrgente = activa.urgencia_ia === "URGENTE";
+  const tiempoLimite = esUrgente ? 30 : 180; // minutos
+  const vencida = estado === "PENDIENTE" && minutosTranscurridos > tiempoLimite;
+
+  const ESTADOS = [
+    { key: "PENDIENTE", label: "Solicitud enviada",       icon: "📡", desc: "Esperando que un profesional acepte" },
+    { key: "ACEPTADO",  label: "Trabajo aceptado",        icon: "✅", desc: "Un plomero aceptó tu solicitud" },
+    { key: "EN_CAMINO", label: "El plomero va en camino", icon: "🚗", desc: "Ya está yendo a tu domicilio" },
+  ];
+  const idxActual = ESTADOS.findIndex(e => e.key === estado);
+
+  return (
+    <div style={{ maxWidth: "600px", margin: "0 auto", padding: "32px 24px" }}>
+      <h1 style={{ fontFamily: "'DM Sans',sans-serif", fontWeight: "800",
+        fontSize: "22px", color: "#0F172A", letterSpacing: "-0.4px", margin: "0 0 24px" }}>
+        Mi solicitud activa
+      </h1>
+
+      {/* Banner de solicitud vencida */}
+      {vencida && (
+        <div style={{ background: "#FEF2F2", border: "1.5px solid #FECACA",
+          borderRadius: "14px", padding: "16px 18px", marginBottom: "20px",
+          display: "flex", gap: "12px", alignItems: "flex-start" }}>
+          <span style={{ fontSize: "22px" }}>⏰</span>
+          <div>
+            <div style={{ fontFamily: "'DM Sans',sans-serif", fontWeight: "800",
+              fontSize: "14px", color: "#B91C1C", marginBottom: "4px" }}>
+              Nadie respondió tu solicitud
+            </div>
+            <div style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "13px",
+              color: "#7F1D1D", lineHeight: "1.5", marginBottom: "12px" }}>
+              El tiempo de respuesta venció. Podés volver a solicitar — 
+              te vamos a recomendar otros profesionales disponibles.
+            </div>
+            <button onClick={() => onNav("problema")} style={{
+              background: "linear-gradient(135deg,#EF4444,#B91C1C)",
+              color: "#fff", border: "none", borderRadius: "10px",
+              padding: "9px 18px", fontFamily: "'DM Sans',sans-serif",
+              fontWeight: "700", fontSize: "13px", cursor: "pointer",
+            }}>Volver a solicitar →</button>
+          </div>
+        </div>
+      )}
+
+      {/* Descripción del problema */}
+      <div style={{ background: "#F8FAFC", border: "1.5px solid #E2E8F0",
+        borderRadius: "14px", padding: "16px 18px", marginBottom: "20px" }}>
+        <div style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "11px",
+          fontWeight: "700", color: "#94A3B8", textTransform: "uppercase",
+          letterSpacing: "0.6px", marginBottom: "6px" }}>Tu problema</div>
+        <div style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "14px",
+          color: "#0F172A", lineHeight: "1.5" }}>
+          {activa.descripcion_raw}
+        </div>
+        <div style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "11px",
+          color: "#94A3B8", marginTop: "8px" }}>
+          {activa.fecha ? new Date(activa.fecha).toLocaleString("es-AR") : ""}
+        </div>
+      </div>
+
+      {/* Timeline */}
+      <div style={{ background: "#fff", borderRadius: "20px",
+        border: "1.5px solid #F1F5F9", padding: "24px",
+        boxShadow: "0 2px 16px rgba(0,0,0,0.05)", marginBottom: "20px" }}>
+        {ESTADOS.map((e, i) => {
+          const done    = i <= idxActual;
+          const current = i === idxActual;
+          return (
+            <div key={e.key} style={{ display: "flex", gap: "16px",
+              alignItems: "flex-start", marginBottom: i < ESTADOS.length - 1 ? "24px" : 0 }}>
+              <div style={{ display: "flex", flexDirection: "column", alignItems: "center" }}>
+                <div style={{
+                  width: "42px", height: "42px", borderRadius: "50%",
+                  background: current
+                    ? "linear-gradient(135deg,#3B82F6,#2563EB)"
+                    : done ? "#F0FDF4" : "#F1F5F9",
+                  border: current ? "none" : done ? "2px solid #86EFAC" : "2px solid #E2E8F0",
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  fontSize: "18px", flexShrink: 0,
+                  boxShadow: current ? "0 4px 16px rgba(59,130,246,0.3)" : "none",
+                }}>{e.icon}</div>
+                {i < ESTADOS.length - 1 && (
+                  <div style={{ width: "2px", height: "24px", marginTop: "4px",
+                    background: i < idxActual ? "#86EFAC" : "#E2E8F0" }} />
+                )}
+              </div>
+              <div style={{ paddingTop: "8px" }}>
+                <div style={{ fontFamily: "'DM Sans',sans-serif", fontWeight: "700",
+                  fontSize: "14px", color: done ? "#0F172A" : "#94A3B8" }}>
+                  {e.label}
+                </div>
+                {current && (
+                  <div style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "13px",
+                    color: "#64748B", marginTop: "3px" }}>{e.desc}</div>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Plomeros notificados — solo mientras está PENDIENTE */}
+      {estado === "PENDIENTE" && activa.plomeros_notificados?.length > 0 && (
+        <div style={{ background: "#fff", borderRadius: "16px",
+          border: "1.5px solid #F1F5F9", padding: "18px 20px", marginBottom: "16px" }}>
+          <div style={{ fontFamily: "'DM Sans',sans-serif", fontWeight: "700",
+            fontSize: "11px", color: "#94A3B8", textTransform: "uppercase",
+            letterSpacing: "0.6px", marginBottom: "6px" }}>
+            Profesionales notificados ({activa.plomeros_notificados.length})
+          </div>
+          <p style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "12px",
+            color: "#64748B", marginBottom: "14px" }}>
+            El primero que acepte queda asignado a tu trabajo.
+          </p>
+          {activa.plomeros_notificados.map((p, idx) => (
+            <div key={p.id_plomero} style={{
+              display: "flex", gap: "12px", alignItems: "center",
+              paddingTop: idx > 0 ? "10px" : 0,
+              paddingBottom: idx < activa.plomeros_notificados.length - 1 ? "10px" : 0,
+              borderBottom: idx < activa.plomeros_notificados.length - 1 ? "1px solid #F8FAFC" : "none",
+            }}>
+              <Avatar src={p.foto_perfil_path}
+                nombre={p.nombre} apellido={p.apellido} size={44} />
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontFamily: "'DM Sans',sans-serif", fontWeight: "700",
+                  fontSize: "14px", color: "#0F172A" }}>
+                  {p.nombre} {p.apellido}
+                </div>
+                <div style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "12px",
+                  color: "#94A3B8", marginTop: "2px" }}>
+                  📍 {p.localidad}
+                  {p.puntuacion > 0 && (
+                    <span style={{ marginLeft: "8px" }}>⭐ {p.puntuacion?.toFixed(1)}</span>
+                  )}
+                </div>
+              </div>
+              <div style={{
+                background: "#FFFBEB", border: "1px solid #FDE68A",
+                borderRadius: "8px", padding: "4px 10px",
+                fontFamily: "'DM Sans',sans-serif", fontSize: "11px",
+                color: "#92400E", fontWeight: "600", whiteSpace: "nowrap",
+              }}>⏳ Esperando</div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Plomero asignado — cuando alguien aceptó */}
+      {activa.plomero && (
+        <div style={{ background: "#fff", borderRadius: "16px",
+          border: "1.5px solid #F1F5F9", padding: "18px 20px", marginBottom: "16px" }}>
+          <div style={{ fontFamily: "'DM Sans',sans-serif", fontWeight: "700",
+            fontSize: "11px", color: "#94A3B8", textTransform: "uppercase",
+            letterSpacing: "0.6px", marginBottom: "12px" }}>Plomero asignado</div>
+          <div style={{ display: "flex", gap: "14px", alignItems: "center" }}>
+            <Avatar src={activa.plomero?.foto_perfil_path}
+              nombre={activa.plomero?.nombre}
+              apellido={activa.plomero?.apellido} size={56} />
+            <div>
+              <div style={{ fontFamily: "'DM Sans',sans-serif", fontWeight: "800",
+                fontSize: "16px", color: "#0F172A" }}>
+                {activa.plomero?.nombre} {activa.plomero?.apellido}
+              </div>
+              <div style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "13px",
+                color: "#64748B", marginTop: "2px" }}>
+                📍 {activa.plomero?.localidad}
+              </div>
+              {activa.plomero?.telefono && (
+                <a href={`tel:${activa.plomero.telefono}`} style={{
+                  display: "inline-flex", alignItems: "center", gap: "6px",
+                  marginTop: "8px", background: "#F0FDF4",
+                  border: "1px solid #86EFAC", borderRadius: "8px",
+                  padding: "6px 12px", fontFamily: "'DM Sans',sans-serif",
+                  fontSize: "13px", color: "#15803D", fontWeight: "600",
+                  textDecoration: "none",
+                }}>📞 Llamar</a>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      <button onClick={() => onNav("problema")} style={{
+        width: "100%", background: "#F8FAFC", border: "1.5px solid #E2E8F0",
+        borderRadius: "12px", padding: "12px",
+        fontFamily: "'DM Sans',sans-serif", fontWeight: "600",
+        fontSize: "14px", color: "#475569", cursor: "pointer",
+      }}>← Volver al inicio</button>
+    </div>
+  );
+}
+
+// ─── SCREEN: TRABAJOS FINALIZADOS ─────────────────────────────────────────────
+
+function ScreenTrabajosFinalizados({ historial, loading, onSolicitarDeNuevo }) {
+  const [rating, setRating]     = useState({});
+  const [comentario, setComent] = useState({});
+  const [valorado, setValorado] = useState({});
+  const [loadingCal, setLoadingCal] = useState({});
+
+  const finalizados = historial
+    .filter(h => {
+      const e = (h.estado || "").toUpperCase();
+      return e === "COMPLETADO" || e === "FINALIZADO";
+    })
+    .sort((a, b) => new Date(b.fecha) - new Date(a.fecha));
+
+  const handleCalificar = async (h) => {
+    const stars = rating[h.id_solicitud];
+    if (!stars) return;
+    setLoadingCal(prev => ({ ...prev, [h.id_solicitud]: true }));
+    try {
+      await api.post(`/calificaciones/${h.id_solicitud}`, null, {
+        params: { estrellas: stars, ...(comentario[h.id_solicitud] ? { comentario: comentario[h.id_solicitud] } : {}) },
+      });
+      setValorado(prev => ({ ...prev, [h.id_solicitud]: true }));
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setLoadingCal(prev => ({ ...prev, [h.id_solicitud]: false }));
+    }
+  };
+
+  if (loading) return (
+    <div style={{ display: "flex", justifyContent: "center", padding: "80px" }}>
+      <Spinner size={36} />
+    </div>
+  );
 
   return (
     <div style={{ maxWidth: "640px", margin: "0 auto", padding: "32px 24px" }}>
       <h1 style={{ fontFamily: "'DM Sans',sans-serif", fontWeight: "800",
         fontSize: "22px", color: "#0F172A", letterSpacing: "-0.4px", margin: "0 0 6px" }}>
-        Mis reparaciones
+        Trabajos finalizados
       </h1>
-      <p style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "14px",
-        color: "#64748B", margin: "0 0 24px" }}>
-        Historial de solicitudes enviadas
+      <p style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "13px",
+        color: "#94A3B8", margin: "0 0 24px" }}>
+        Del más reciente al más antiguo
       </p>
 
-      <ErrorBanner msg={error} />
-
-      {loading
-        ? <div style={{ display: "flex", justifyContent: "center", padding: "60px" }}>
-            <Spinner size={36} />
-          </div>
-        : historial.length === 0
-          ? <div style={{ textAlign: "center", padding: "60px 20px",
-              border: "2px dashed #E2E8F0", borderRadius: "16px" }}>
-              <div style={{ fontSize: "36px", marginBottom: "12px" }}>📋</div>
-              <div style={{ fontFamily: "'DM Sans',sans-serif", fontWeight: "700",
-                fontSize: "15px", color: "#94A3B8" }}>
-                Todavía no tenés trabajos registrados.
-              </div>
+      {finalizados.length === 0
+        ? <div style={{ textAlign: "center", padding: "60px 20px",
+            border: "2px dashed #E2E8F0", borderRadius: "16px" }}>
+            <div style={{ fontSize: "36px", marginBottom: "12px" }}>✅</div>
+            <div style={{ fontFamily: "'DM Sans',sans-serif", fontWeight: "700",
+              fontSize: "15px", color: "#94A3B8" }}>
+              Todavía no tenés trabajos finalizados.
             </div>
-          : historial.map(h => (
-            <div key={h.id_solicitud} style={{
-              background: "#fff", borderRadius: "16px",
-              border: "1.5px solid #F1F5F9", padding: "18px 20px",
-              marginBottom: "12px", transition: "all 0.18s",
-            }}
-            onMouseEnter={e => e.currentTarget.style.border = "1.5px solid #BFDBFE"}
-            onMouseLeave={e => e.currentTarget.style.border = "1.5px solid #F1F5F9"}
-            >
-              <div style={{ display: "flex", gap: "14px", alignItems: "center" }}>
-                <Avatar nombre={h.nombre_plomero?.split(" ")[0] || "P"}
-                  apellido={h.nombre_plomero?.split(" ")[1] || ""} size={52} />
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontFamily: "'DM Sans',sans-serif", fontWeight: "800",
-                    fontSize: "15px", color: "#0F172A" }}>
-                    {h.nombre_plomero || "Sin asignar"}
-                  </div>
-                  <div style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "13px",
-                    color: "#64748B", marginTop: "2px",
-                    whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                    {h.descripcion_raw}
-                  </div>
-                  <div style={{ display: "flex", alignItems: "center", gap: "8px", marginTop: "5px" }}>
-                    <span style={{
-                      background: h.estado === "ACEPTADO" ? "#F0FDF4" : h.estado === "PENDIENTE" ? "#FFFBEB" : "#F0F9FF",
-                      color: h.estado === "ACEPTADO" ? "#15803D" : h.estado === "PENDIENTE" ? "#B45309" : "#0369A1",
-                      fontSize: "11px", fontWeight: "700", padding: "2px 8px",
-                      borderRadius: "6px", fontFamily: "'DM Sans',sans-serif",
-                    }}>{h.estado}</span>
-                    <span style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "11px",
-                      color: "#94A3B8" }}>
-                      {h.fecha ? new Date(h.fecha).toLocaleDateString("es-AR") : ""}
-                    </span>
-                  </div>
+          </div>
+        : finalizados.map(h => (
+          <div key={h.id_solicitud} style={{
+            background: "#fff", borderRadius: "20px",
+            border: "1.5px solid #F1F5F9", padding: "20px",
+            marginBottom: "16px", boxShadow: "0 2px 12px rgba(0,0,0,0.04)",
+          }}>
+            {/* Card del plomero */}
+            <div style={{ display: "flex", gap: "14px", alignItems: "center", marginBottom: "14px" }}>
+              <Avatar src={h.plomero?.foto_perfil_path}
+                nombre={h.plomero?.nombre || h.nombre_plomero?.split(" ")[0] || "P"}
+                apellido={h.plomero?.apellido || h.nombre_plomero?.split(" ")[1] || ""}
+                size={56} />
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontFamily: "'DM Sans',sans-serif", fontWeight: "800",
+                  fontSize: "16px", color: "#0F172A" }}>
+                  {h.plomero?.nombre || h.nombre_plomero || "Plomero"}
+                  {" "}
+                  {h.plomero?.apellido || ""}
                 </div>
-                <button onClick={() => setDetalle(detalle === h.id_solicitud ? null : h.id_solicitud)}
-                  style={{ background: "#F8FAFC", border: "1.5px solid #E2E8F0",
-                    borderRadius: "8px", padding: "6px 12px",
-                    fontFamily: "'DM Sans',sans-serif", fontWeight: "600",
-                    fontSize: "12px", color: "#475569", cursor: "pointer" }}>
-                  {detalle === h.id_solicitud ? "Cerrar" : "Ver detalle"}
-                </button>
-              </div>
-
-              {detalle === h.id_solicitud && (
-                <div style={{ marginTop: "14px", paddingTop: "14px",
-                  borderTop: "1px solid #F1F5F9" }}>
-                  <div style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "13px",
-                    color: "#475569", lineHeight: "1.6", marginBottom: "10px" }}>
-                    {h.descripcion_raw}
-                  </div>
-                  {h.plomeros_sugeridos_detallados?.length > 0 && (
-                    <div>
-                      <div style={{ fontFamily: "'DM Sans',sans-serif", fontWeight: "700",
-                        fontSize: "12px", color: "#94A3B8", textTransform: "uppercase",
-                        letterSpacing: "0.6px", marginBottom: "8px" }}>Plomeros sugeridos</div>
-                      {h.plomeros_sugeridos_detallados.map(p => (
-                        <div key={p.id} style={{ fontFamily: "'DM Sans',sans-serif",
-                          fontSize: "12px", color: "#64748B", marginBottom: "4px" }}>
-                          · {p.nombre} — {p.localidad} — ⭐ {p.calificacion?.toFixed(1)}
-                        </div>
-                      ))}
-                    </div>
+                <div style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "12px",
+                  color: "#64748B", marginTop: "2px" }}>
+                  📍 {h.plomero?.localidad || "—"}
+                  {h.plomero?.puntuacion > 0 && (
+                    <span style={{ marginLeft: "8px" }}>
+                      ⭐ {h.plomero.puntuacion.toFixed(1)}
+                    </span>
                   )}
                 </div>
-              )}
+                <div style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "11px",
+                  color: "#94A3B8", marginTop: "4px" }}>
+                  {h.fecha ? new Date(h.fecha).toLocaleDateString("es-AR", {
+                    day: "numeric", month: "long", year: "numeric"
+                  }) : ""}
+                </div>
+              </div>
+              {/* Botón volver a contactar */}
+              <button onClick={() => onSolicitarDeNuevo(h)}
+                style={{
+                  background: "linear-gradient(135deg,#3B82F6,#2563EB)",
+                  color: "#fff", border: "none", borderRadius: "10px",
+                  padding: "8px 14px", fontFamily: "'DM Sans',sans-serif",
+                  fontWeight: "700", fontSize: "12px", cursor: "pointer",
+                  whiteSpace: "nowrap", flexShrink: 0,
+                  boxShadow: "0 2px 8px rgba(59,130,246,0.3)",
+                }}>
+                Contactar de nuevo
+              </button>
             </div>
-          ))
+
+            {/* Descripción del trabajo */}
+            <div style={{ background: "#F8FAFC", borderRadius: "10px",
+              padding: "10px 14px", marginBottom: "14px",
+              fontFamily: "'DM Sans',sans-serif", fontSize: "13px",
+              color: "#475569", lineHeight: "1.5", fontStyle: "italic" }}>
+              "{h.descripcion_raw}"
+            </div>
+
+            {/* Calificación */}
+            {valorado[h.id_solicitud]
+              ? <div style={{ background: "#F0FDF4", border: "1px solid #86EFAC",
+                  borderRadius: "10px", padding: "10px 14px",
+                  fontFamily: "'DM Sans',sans-serif", fontSize: "13px",
+                  color: "#15803D", fontWeight: "600" }}>
+                  ✓ Gracias por tu valoración
+                </div>
+              : <div>
+                  <div style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "12px",
+                    fontWeight: "700", color: "#64748B", marginBottom: "8px" }}>
+                    ¿Cómo estuvo el trabajo?
+                  </div>
+                  <div style={{ display: "flex", gap: "6px", marginBottom: "10px" }}>
+                    {[1,2,3,4,5].map(i => (
+                      <button key={i}
+                        onClick={() => setRating(prev => ({ ...prev, [h.id_solicitud]: i }))}
+                        style={{
+                          width: "36px", height: "36px", borderRadius: "8px",
+                          border: rating[h.id_solicitud] >= i
+                            ? "2px solid #F59E0B" : "2px solid #E2E8F0",
+                          background: rating[h.id_solicitud] >= i ? "#FFFBEB" : "#F8FAFC",
+                          fontSize: "18px", cursor: "pointer",
+                          display: "flex", alignItems: "center", justifyContent: "center",
+                        }}>⭐</button>
+                    ))}
+                    {rating[h.id_solicitud] > 0 && (
+                      <span style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "12px",
+                        color: "#92400E", fontWeight: "700", alignSelf: "center", marginLeft: "4px" }}>
+                        {["","Malo","Regular","Bueno","Muy bueno","Excelente"][rating[h.id_solicitud]]}
+                      </span>
+                    )}
+                  </div>
+                  {rating[h.id_solicitud] > 0 && (
+                    <>
+                      <textarea
+                        value={comentario[h.id_solicitud] || ""}
+                        onChange={e => setComent(prev => ({ ...prev, [h.id_solicitud]: e.target.value }))}
+                        placeholder="Contá tu experiencia (opcional) — le sirve a otros clientes..."
+                        rows={2}
+                        style={{ width: "100%", borderRadius: "10px", padding: "10px 12px",
+                          border: "1.5px solid #E2E8F0", fontFamily: "'DM Sans',sans-serif",
+                          fontSize: "13px", color: "#0F172A", resize: "none",
+                          outline: "none", boxSizing: "border-box", background: "#F8FAFC",
+                          marginBottom: "8px" }}
+                      />
+                      <button
+                        onClick={() => handleCalificar(h)}
+                        disabled={loadingCal[h.id_solicitud]}
+                        style={{
+                          width: "100%", background: "linear-gradient(135deg,#F59E0B,#D97706)",
+                          color: "#fff", border: "none", borderRadius: "10px",
+                          padding: "10px", fontFamily: "'DM Sans',sans-serif",
+                          fontWeight: "700", fontSize: "13px", cursor: "pointer",
+                          display: "flex", alignItems: "center", justifyContent: "center", gap: "8px",
+                        }}>
+                        {loadingCal[h.id_solicitud] ? <Spinner size={14} color="#fff" /> : null}
+                        Enviar valoración ⭐
+                      </button>
+                    </>
+                  )}
+                </div>
+            }
+          </div>
+        ))
       }
     </div>
   );
@@ -1088,7 +1432,7 @@ function useSolicitudNotifs(token) {
     if (!token) return;
     try {
       // Usamos el endpoint de solicitudes del usuario (ajustá si cambia el route)
-      const res = await api.get("/solicitudes/buscar", { params: { q: "" } });
+      const res = await api.get("/solicitudes/mis-solicitudes");
       const arr = Array.isArray(res.data) ? res.data : [];
       const nuevas = [];
 
@@ -1145,6 +1489,7 @@ export default function HomeCliente({ onLogout }) {
   const [problema, setProblema] = useState("");
   const [urgencia, setUrgencia] = useState(false);
   const [solicitudActiva, setSolicitud] = useState(null);
+  const [idsExcluidos, setIdsExcluidos] = useState([]);
 
   // Historial real
   const [historial, setHistorial]       = useState([]);
@@ -1156,15 +1501,21 @@ export default function HomeCliente({ onLogout }) {
   const [notifs, setNotifs] = useSolicitudNotifs(token);
   const notifCount = notifs.filter(n => !n.leida).length;
 
-  // Cargar historial al montar
+  // Cargar historial al montar — usa el endpoint con detalle completo
   useEffect(() => {
     const cargar = async () => {
       setLoadingH(true); setErrorH("");
       try {
-        const res = await api.get("/solicitudes/buscar", { params: { q: "" } });
+        const res = await api.get("/solicitudes/mis-solicitudes");
         setHistorial(Array.isArray(res.data) ? res.data : []);
       } catch (e) {
-        setErrorH(e.message);
+        // Fallback al endpoint anterior si el nuevo no está disponible
+        try {
+          const res2 = await api.get("/solicitudes/buscar", { params: { q: "" } });
+          setHistorial(Array.isArray(res2.data) ? res2.data : []);
+        } catch {
+          setErrorH(e.message);
+        }
       } finally {
         setLoadingH(false);
       }
@@ -1183,7 +1534,27 @@ export default function HomeCliente({ onLogout }) {
   const handleBuscar = (texto, urg) => {
     setProblema(texto);
     setUrgencia(urg);
+    // Calcular IDs a excluir: plomeros de solicitudes pendientes que vencieron
+    const ahora = new Date();
+    const excluidos = new Set();
+    historial.forEach(h => {
+      const e = (h.estado || "").toLowerCase();
+      if (e === "pendiente") {
+        const mins = (ahora - new Date(h.fecha)) / 1000 / 60;
+        const limite = h.urgencia_ia === "URGENTE" ? 30 : 180;
+        if (mins > limite && h.plomeros_notificados?.length > 0) {
+          h.plomeros_notificados.forEach(p => excluidos.add(p.id_plomero));
+        }
+      }
+    });
+    setIdsExcluidos([...excluidos]);
     setScreen("resultados");
+  };
+
+  // Cuando el cliente quiere volver a contratar a un plomero finalizado
+  const handleSolicitarDeNuevo = (h) => {
+    // Ir al inicio para que escriba el problema (con el nombre del plomero como sugerencia)
+    setScreen("problema");
   };
 
   const handleEnviar = (resp) => {
@@ -1199,7 +1570,7 @@ export default function HomeCliente({ onLogout }) {
       <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
 
       <Header
-        screen={screen === "resultados" || screen === "estado" ? "problema" : screen}
+        screen={["resultados","estado"].includes(screen) ? "problema" : screen}
         onNav={setScreen}
         notifCount={notifCount}
         onLogout={handleLogout}
@@ -1207,29 +1578,32 @@ export default function HomeCliente({ onLogout }) {
       />
 
       {screen === "problema" && (
-        <ScreenProblema
-          onBuscar={handleBuscar}
-        />
+        <ScreenProblema onBuscar={handleBuscar} />
       )}
       {screen === "resultados" && (
         <ScreenResultados
           problema={problema}
           urgencia={urgencia}
+          idsExcluidos={idsExcluidos}
           onEnviar={handleEnviar}
           onNav={setScreen}
         />
       )}
       {screen === "estado" && (
-        <ScreenEstado
-          solicitud={solicitudActiva}
+        <ScreenEstado solicitud={solicitudActiva} onNav={setScreen} />
+      )}
+      {screen === "mi-solicitud" && (
+        <ScreenMiSolicitud
+          historial={historial}
+          loading={loadingHistorial}
           onNav={setScreen}
         />
       )}
-      {screen === "historial" && (
-        <ScreenHistorial
+      {screen === "trabajos-finalizados" && (
+        <ScreenTrabajosFinalizados
           historial={historial}
           loading={loadingHistorial}
-          error={errorHistorial}
+          onSolicitarDeNuevo={handleSolicitarDeNuevo}
         />
       )}
       {screen === "notificaciones" && (
