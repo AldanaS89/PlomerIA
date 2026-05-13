@@ -141,24 +141,32 @@ def filtrar(
     especialidades: Optional[str] = None,
     atiende_urgencias: Optional[bool] = None,
     solo_disponibles: bool = True,
+    lat_usuario: Optional[float] = None,
+    lon_usuario: Optional[float] = None,
+    radio_km: Optional[float] = RADIO_KM,  # None = sin límite
 ) -> list[Plomero]:
 
     query = db.query(Plomero)
 
     if solo_disponibles:
         query = query.filter(Plomero.disponible_ahora == True)
-
     if localidad:
         query = query.filter(Plomero.localidad == localidad)
-
     if genero:
         query = query.filter(Plomero.genero == genero)
-
     if especialidades:
-        # JSON contains
         query = query.filter(Plomero.especialidades.contains([especialidades]))
-
     if atiende_urgencias is not None:
         query = query.filter(Plomero.atiende_urgencias == atiende_urgencias)
 
-    return query.order_by(Plomero.puntuacion.desc()).all()
+    plomeros = query.order_by(Plomero.puntuacion.desc()).all()
+
+    # Filtro por distancia solo si hay coords Y radio definido
+    if lat_usuario is not None and lon_usuario is not None and radio_km is not None:
+        plomeros = [
+            p for p in plomeros
+            if p.latitud and p.longitud and
+            _distancia_km(lat_usuario, lon_usuario, p.latitud, p.longitud) <= radio_km
+        ]
+
+    return plomeros

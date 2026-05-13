@@ -1,210 +1,210 @@
-import { useState } from "react";
-import { useLocation, useNavigate } from "react-router-dom";
-import api from "../services/api";
+// src/pages/Registro.jsx — Formulario de registro de CLIENTE
+import { useState } from 'react'
+import api from '../services/api'
+import { useAuthStore } from '../store/authStore'
 
-const Registro = () => {
-  const location = useLocation();
-  const navigate = useNavigate();
+const LOCALIDADES = [
+  "Adrogué","Burzaco","Claypole","Don Orione","Glew","José Mármol",
+  "Longchamps","Ministro Rivadavia","Monte Grande","Rafael Calzada",
+  "San Francisco de Asís","San José","Temperley","Turdera","Lomas de Zamora",
+  "Banfield","Lanús","Avellaneda","Quilmes","Berazategui","Florencio Varela","Otra",
+]
 
-  // 1. Detectar rol inicial desde el Login
-  const [rol, setRol] = useState(location.state?.rolInicial || "usuario");
-  const [loading, setLoading] = useState(false);
+export default function Registro({ onNav }) {
+  const setAuth  = useAuthStore((s) => s.setAuth);
 
-  // 2. Estado del formulario (unificado para cumplir con tus schemas)
-  const [formData, setFormData] = useState({
-    nombre: "",
-    apellido: "",
-    email: "",
-    password: "",
-    telefono: "",
-    direccion: "",
-    localidad: "",
-    // Campos específicos de Plomero (Schema PlomeroRequest)
-    especialidades: [],
-    genero: "masculino",
-    atiende_urgencias: false,
-    matricula_gas: false,
+  const [form, setForm] = useState({
+    nombre: '', apellido: '', email: '', password: '', confirmar: '',
+    telefono: '', direccion: '', localidad: '',
   });
+  const [error,    setError]    = useState('')
+  const [cargando, setCargando] = useState(false)
+  const [showPass, setShowPass] = useState(false)
 
-  const handleChange = (e) => {
-    const { name, value, type, checked } = e.target;
-    setFormData({
-      ...formData,
-      [name]: type === "checkbox" ? checked : value,
-    });
-  };
-
-  // Manejo especial para la lista de especialidades
-  const handleEspecialidades = (esp) => {
-    const current = formData.especialidades;
-    setFormData({
-      ...formData,
-      especialidades: current.includes(esp)
-        ? current.filter((i) => i !== esp)
-        : [...current, esp],
-    });
-  };
+  const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }))
 
   const handleSubmit = async (e) => {
-    e.preventDefault();
-    setLoading(true);
+    e.preventDefault()
+    setError('')
 
-    // Ajuste de data según el schema que espera el backend
-    const dataAEnviar =
-      rol === "usuario" ? { ...formData, rol: "cliente" } : formData;
+    if (form.password !== form.confirmar) {
+      return setError('Las contraseñas no coinciden')
+    }
+    if (form.password.length < 6) {
+      return setError('La contraseña debe tener al menos 6 caracteres')
+    }
 
-    const endpoint =
-      rol === "usuario" ? "/usuarios/registro" : "/plomeros/registro";
-
+    setCargando(true)
     try {
-      // 1. Registro en el backend
-      const res = await api.post(endpoint, dataAEnviar);
+      const res = await api.post('/usuarios/registro', {
+        nombre:    form.nombre,
+        apellido:  form.apellido,
+        email:     form.email,
+        password:  form.password,
+        telefono:  form.telefono,
+        direccion: form.direccion,
+        localidad: form.localidad,
+        rol:       'cliente',
+      })
 
-      // 2. Lógica de Auto-Login (Guardamos el token que viene del registro)
-      const authData = {
-        state: {
-          token: res.data.access_token,
-          user: {
-            id: res.data.id_usuario || res.data.id_plomero,
-            nombre: res.data.nombre,
-            rol: res.data.rol || (rol === "usuario" ? "cliente" : "plomero"),
-          },
-        },
-      };
-
-      localStorage.setItem("plomeria-auth", JSON.stringify(authData));
-
-      alert("¡Cuenta creada con éxito!");
-
-      // 3. Redirigir según el rol
-      if (rol === "plomero") {
-        navigate("/plomero");
-      } else {
-        navigate("/cliente");
+      const usuario = {
+        id:     res.data.id_usuario,
+        nombre: res.data.nombre,
+        rol:    'cliente',
       }
+      // Zustand persist guarda en localStorage automáticamente
+      setAuth(res.data.access_token, usuario)
+      onNav('app') // App.jsx monta <HomeCliente> cuando view === "app"
 
     } catch (err) {
-      console.error(err);
-      alert(err.response?.data?.detail || "Error en el registro. Verificá los datos.");
+      setError(err.response?.data?.detail || 'Error al registrar. Intentá de nuevo.')
     } finally {
-      setLoading(false);
+      setCargando(false)
     }
-  };
+  }
 
   return (
-    <div className="min-h-screen bg-slate-50 py-10 px-4 font-sans">
-      <div className="max-w-2xl mx-auto bg-white p-10 rounded-[2.5rem] shadow-xl border border-slate-100">
-        <h2 className="text-3xl font-black text-center mb-2 text-slate-800">Unite a PlomerIA</h2>
-        <p className="text-center text-slate-400 mb-8 text-sm">Completá tus datos para empezar</p>
+    <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
+      <div className="bg-white p-8 rounded-[2.5rem] shadow-xl w-full max-w-md border border-slate-100">
 
-        {/* SELECTOR DE ROL */}
-        <div className="flex bg-slate-100 p-2 rounded-3xl mb-8">
-          <button
-            type="button"
-            onClick={() => setRol("usuario")}
-            className={`flex-1 py-4 rounded-2xl font-bold transition-all ${rol === "usuario" ? "bg-white shadow-md text-blue-600" : "text-slate-400"}`}
-          >
-            🏠 Soy Cliente
-          </button>
-          <button
-            type="button"
-            onClick={() => setRol("plomero")}
-            className={`flex-1 py-4 rounded-2xl font-bold transition-all ${rol === "plomero" ? "bg-white shadow-md text-emerald-600" : "text-slate-400"}`}
-          >
-            🔧 Soy Plomero
-          </button>
+        {/* Logo */}
+        <div className="flex justify-center mb-6">
+          <div className="bg-blue-600 px-4 py-2 rounded-xl shadow-lg shadow-blue-100">
+            <span className="text-white font-black text-2xl tracking-tighter">
+              🔧 PlomerIA
+            </span>
+          </div>
         </div>
 
+        <h2 className="text-2xl font-black text-center text-slate-800 mb-1">
+          Crear cuenta de cliente
+        </h2>
+        <p className="text-slate-400 text-center text-sm mb-6">
+          Completá tus datos para empezar
+        </p>
+
         <form onSubmit={handleSubmit} className="space-y-4">
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-1">
-              <label className="text-[10px] font-bold text-slate-400 uppercase ml-2">Nombre</label>
-              <input name="nombre" placeholder="Ej: Juan" onChange={handleChange} className="w-full p-4 bg-slate-50 rounded-2xl border border-slate-100 focus:ring-2 focus:ring-blue-500 outline-none" required />
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-[10px] font-black text-slate-400 mb-1 uppercase tracking-widest">
+                Nombre
+              </label>
+              <input
+                required type="text" placeholder="Carlos"
+                value={form.nombre} onChange={set('nombre')}
+                className="w-full p-3 bg-slate-50 border border-slate-200 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+              />
             </div>
-            <div className="space-y-1">
-              <label className="text-[10px] font-bold text-slate-400 uppercase ml-2">Apellido</label>
-              <input name="apellido" placeholder="Ej: Pérez" onChange={handleChange} className="w-full p-4 bg-slate-50 rounded-2xl border border-slate-100 focus:ring-2 focus:ring-blue-500 outline-none" required />
-            </div>
-          </div>
-
-          <div className="space-y-1">
-            <label className="text-[10px] font-bold text-slate-400 uppercase ml-2">Correo Electrónico</label>
-            <input name="email" type="email" placeholder="correo@ejemplo.com" onChange={handleChange} className="w-full p-4 bg-slate-50 rounded-2xl border border-slate-100 focus:ring-2 focus:ring-blue-500 outline-none" required />
-          </div>
-
-          <div className="space-y-1">
-            <label className="text-[10px] font-bold text-slate-400 uppercase ml-2">Contraseña</label>
-            <input name="password" type="password" placeholder="••••••••" onChange={handleChange} className="w-full p-4 bg-slate-50 rounded-2xl border border-slate-100 focus:ring-2 focus:ring-blue-500 outline-none" required />
-          </div>
-
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-1">
-              <label className="text-[10px] font-bold text-slate-400 uppercase ml-2">Teléfono</label>
-              <input name="telefono" placeholder="11 2233 4455" onChange={handleChange} className="w-full p-4 bg-slate-50 rounded-2xl border border-slate-100 focus:ring-2 focus:ring-blue-500 outline-none" required />
-            </div>
-            <div className="space-y-1">
-              <label className="text-[10px] font-bold text-slate-400 uppercase ml-2">Localidad</label>
-              <input name="localidad" placeholder="Ej: Glew" onChange={handleChange} className="w-full p-4 bg-slate-50 rounded-2xl border border-slate-100 focus:ring-2 focus:ring-blue-500 outline-none" required />
+            <div>
+              <label className="block text-[10px] font-black text-slate-400 mb-1 uppercase tracking-widest">
+                Apellido
+              </label>
+              <input
+                required type="text" placeholder="García"
+                value={form.apellido} onChange={set('apellido')}
+                className="w-full p-3 bg-slate-50 border border-slate-200 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+              />
             </div>
           </div>
 
-          <div className="space-y-1">
-            <label className="text-[10px] font-bold text-slate-400 uppercase ml-2">Dirección</label>
-            <input name="direccion" placeholder="Calle y número" onChange={handleChange} className="w-full p-4 bg-slate-50 rounded-2xl border border-slate-100 focus:ring-2 focus:ring-blue-500 outline-none" required />
+          <div>
+            <label className="block text-[10px] font-black text-slate-400 mb-1 uppercase tracking-widest">
+              Teléfono
+            </label>
+            <input
+              required type="tel" placeholder="11 4523-8871"
+              value={form.telefono} onChange={set('telefono')}
+              className="w-full p-3 bg-slate-50 border border-slate-200 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+            />
           </div>
 
-          {/* CAMPOS EXCLUSIVOS PARA PLOMERO */}
-          {rol === "plomero" && (
-            <div className="pt-6 border-t border-dashed border-slate-200 space-y-6 animate-in fade-in slide-in-from-top-4">
-              <div>
-                <label className="text-[10px] font-black uppercase text-slate-400 ml-2">Mis Especialidades</label>
-                <div className="flex flex-wrap gap-2 mt-2">
-                  {["Cañerías", "Gas", "Termotanques", "Cloacas", "Grifería"].map((esp) => (
-                    <button
-                      key={esp}
-                      type="button"
-                      onClick={() => handleEspecialidades(esp)}
-                      className={`px-4 py-2 rounded-xl text-xs font-bold border transition-all ${formData.especialidades.includes(esp) ? "bg-emerald-500 border-emerald-500 text-white shadow-md shadow-emerald-100" : "bg-white border-slate-200 text-slate-400 hover:border-emerald-200"}`}
-                    >
-                      {esp}
-                    </button>
-                  ))}
-                </div>
-              </div>
+          <div>
+            <label className="block text-[10px] font-black text-slate-400 mb-1 uppercase tracking-widest">
+              Dirección
+            </label>
+            <input
+              required type="text" placeholder="Av. Mitre 1234"
+              value={form.direccion} onChange={set('direccion')}
+              className="w-full p-3 bg-slate-50 border border-slate-200 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+            />
+          </div>
 
-              <div className="grid grid-cols-2 gap-4">
-                <label className="flex items-center gap-3 p-4 bg-slate-50 rounded-2xl cursor-pointer hover:bg-emerald-50 transition-colors">
-                  <input type="checkbox" name="atiende_urgencias" onChange={handleChange} className="w-5 h-5 accent-emerald-500" />
-                  <span className="text-xs font-bold text-slate-600">Urgencias 24h</span>
-                </label>
-                <label className="flex items-center gap-3 p-4 bg-slate-50 rounded-2xl cursor-pointer hover:bg-emerald-50 transition-colors">
-                  <input type="checkbox" name="matricula_gas" onChange={handleChange} className="w-5 h-5 accent-emerald-500" />
-                  <span className="text-xs font-bold text-slate-600">Matrícula Gas</span>
-                </label>
-              </div>
+          <div>
+            <label className="block text-[10px] font-black text-slate-400 mb-1 uppercase tracking-widest">
+              Localidad
+            </label>
+            <select
+              required value={form.localidad} onChange={set('localidad')}
+              className="w-full p-3 bg-slate-50 border border-slate-200 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+            >
+              <option value="">Seleccioná tu localidad</option>
+              {LOCALIDADES.map((l) => <option key={l} value={l}>{l}</option>)}
+            </select>
+          </div>
 
-              <div className="space-y-1">
-                <label className="text-[10px] font-bold text-slate-400 uppercase ml-2">Género</label>
-                <select name="genero" onChange={handleChange} className="w-full p-4 bg-slate-50 rounded-2xl border border-slate-100 outline-none">
-                  <option value="masculino">Masculino</option>
-                  <option value="femenino">Femenino</option>
-                  <option value="otro">Otro</option>
-                </select>
-              </div>
+          <div>
+            <label className="block text-[10px] font-black text-slate-400 mb-1 uppercase tracking-widest">
+              Email
+            </label>
+            <input
+              required type="email" placeholder="tu@email.com"
+              value={form.email} onChange={set('email')}
+              className="w-full p-3 bg-slate-50 border border-slate-200 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+            />
+          </div>
+
+          <div>
+            <label className="block text-[10px] font-black text-slate-400 mb-1 uppercase tracking-widest">
+              Contraseña
+            </label>
+            <div className="relative">
+              <input
+                required type={showPass ? 'text' : 'password'}
+                placeholder="Mínimo 6 caracteres"
+                value={form.password} onChange={set('password')}
+                className="w-full p-3 bg-slate-50 border border-slate-200 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm pr-10"
+              />
+              <button type="button" onClick={() => setShowPass((p) => !p)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
+                {showPass ? '🙈' : '👁'}
+              </button>
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-[10px] font-black text-slate-400 mb-1 uppercase tracking-widest">
+              Confirmar contraseña
+            </label>
+            <input
+              required type={showPass ? 'text' : 'password'}
+              placeholder="Repetí la contraseña"
+              value={form.confirmar} onChange={set('confirmar')}
+              className="w-full p-3 bg-slate-50 border border-slate-200 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+            />
+          </div>
+
+          {error && (
+            <div className="bg-red-50 border border-red-200 rounded-2xl px-4 py-3">
+              <p className="text-red-600 text-sm text-center">{error}</p>
             </div>
           )}
 
           <button
-            type="submit"
-            disabled={loading}
-            className={`w-full py-5 rounded-[2rem] font-black uppercase tracking-widest text-white mt-6 transition-all shadow-lg ${rol === "usuario" ? "bg-[#0f172a] hover:bg-blue-600 shadow-blue-100" : "bg-emerald-500 hover:bg-emerald-600 shadow-emerald-100"}`}
+            type="submit" disabled={cargando}
+            className="w-full font-black py-4 rounded-2xl transition-all shadow-lg uppercase text-xs tracking-[0.2em] bg-blue-600 text-white hover:bg-blue-700 disabled:bg-slate-200 disabled:text-slate-400"
           >
-            {loading ? "Creando cuenta..." : `Registrarme ahora →`}
+            {cargando ? 'Registrando...' : 'Crear cuenta →'}
           </button>
+
+          <p className="text-center text-sm text-slate-400 mt-2">
+            ¿Ya tenés cuenta?{' '}
+            <button type="button" onClick={() => onNav('login')}
+              className="text-blue-600 hover:underline font-semibold">
+              Ingresá
+            </button>
+          </p>
         </form>
       </div>
     </div>
-  );
-};
-
-export default Registro;
+  )
+}

@@ -1,10 +1,12 @@
-const OlvidePassword = () => {
+import React, { useState } from 'react'; // Agregamos React por seguridad
+import api from '../services/api';
+
+export default function OlvidePassword() { 
   const [email, setEmail] = useState('');
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     try {
-      // Tus rutas diferencian usuario/plomero, podrías necesitar un selector o probar ambos
       await api.post('/usuarios/olvide-password', { email });
       alert("Si el correo existe, recibirás un link de recuperación.");
     } catch (err) {

@@ -8,14 +8,14 @@ from jose import jwt
 from datetime import datetime, timedelta
 
 from utils.email import enviar_reset_password
-from config import SECRET_KEY, ALGORITHM   # ← FIX: misma fuente que auth_plomeros.py
+from config import SECRET_KEY, ALGORITHM
 
 from models.usuario import Usuario
 from schemas.auth import RegistroRequest, LoginRequest, LoginResponse
 from repositories import usuario_repository
 
-#pwd_context = CryptContext(schemes=["pbkdf2_sha256"], deprecated="auto")
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
 
 def _geocodificar(direccion: str, localidad: str) -> tuple[float, float]:
     try:
@@ -54,28 +54,28 @@ def registrar(db: Session, datos: RegistroRequest) -> dict:
     latitud, longitud = _geocodificar(datos.direccion, datos.localidad)
 
     nuevo_usuario = Usuario(
-    nombre        = datos.nombre,
-    apellido      = datos.apellido,
-    email         = datos.email,
-    password_hash = hashear_password(datos.password),
-    direccion     = datos.direccion,
-    localidad     = datos.localidad,
-    telefono      = datos.telefono,
-    rol           = datos.rol,   # ← coma acá
-    latitud       = latitud,
-    longitud      = longitud,
-)
+        nombre        = datos.nombre,
+        apellido      = datos.apellido,
+        email         = datos.email,
+        password_hash = hashear_password(datos.password),
+        direccion     = datos.direccion,
+        localidad     = datos.localidad,
+        telefono      = datos.telefono,
+        rol           = datos.rol,
+        latitud       = latitud,
+        longitud      = longitud,
+    )
 
     usuario = usuario_repository.crear_usuario(db, nuevo_usuario)
-    token   = crear_token(usuario.id_usuario)  # ← agregar
+    token   = crear_token(usuario.id_usuario)
 
     return {
         "mensaje":      "Usuario registrado correctamente",
-        "access_token": token,                 # ← agregar
-        "token_type":   "bearer",              # ← agregar
+        "access_token": token,
+        "token_type":   "bearer",
         "id_usuario":   usuario.id_usuario,
         "nombre":       usuario.nombre,
-        "rol": usuario.rol
+        "rol":          usuario.rol,
     }
 
 
@@ -88,13 +88,14 @@ def login(db: Session, datos: LoginRequest) -> LoginResponse:
     token = crear_token(usuario.id_usuario)
 
     return LoginResponse(
-        access_token=token,
-        token_type="bearer",
-        id_usuario=usuario.id_usuario,
-        nombre=usuario.nombre,
-        rol=usuario.rol
+        access_token = token,
+        token_type   = "bearer",
+        id_usuario   = usuario.id_usuario,
+        nombre       = usuario.nombre,
+        rol          = usuario.rol,
     )
-    
+
+
 def olvide_password(db: Session, email: str) -> dict:
     usuario = usuario_repository.buscar_por_email(db, email)
 
@@ -110,6 +111,7 @@ def olvide_password(db: Session, email: str) -> dict:
         raise HTTPException(status_code=500, detail=f"Error al enviar el email: {str(e)}")
 
     return {"mensaje": "Si el email existe, vas a recibir un link para restablecer tu contraseña"}
+
 
 def reset_password(db: Session, token: str, nueva_password: str) -> dict:
     usuario = usuario_repository.buscar_por_reset_token(db, token)
