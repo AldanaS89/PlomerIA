@@ -944,7 +944,7 @@ function ScreenEstado({ solicitud, onNav }) {
 
 // ─── SCREEN: MI SOLICITUD ────────────────────────────────────────────────────
 
-function ScreenMiSolicitud({ historial, loading, onNav }) {
+function ScreenMiSolicitud({ historial, loading, onNav, onReSolicitar }) {
   const activa = historial
     .filter(h => {
       const e = (h.estado || "").toLowerCase();
@@ -1020,7 +1020,7 @@ function ScreenMiSolicitud({ historial, loading, onNav }) {
               El tiempo de respuesta venció. Podés volver a solicitar — 
               te vamos a recomendar otros profesionales disponibles.
             </div>
-            <button onClick={() => onNav("problema")} style={{
+            <button onClick={() => onReSolicitar(activa)} style={{
               background: "linear-gradient(135deg,#EF4444,#B91C1C)",
               color: "#fff", border: "none", borderRadius: "10px",
               padding: "9px 18px", fontFamily: "'DM Sans',sans-serif",
@@ -1051,8 +1051,9 @@ function ScreenMiSolicitud({ historial, loading, onNav }) {
         border: "1.5px solid #F1F5F9", padding: "24px",
         boxShadow: "0 2px 16px rgba(0,0,0,0.05)", marginBottom: "20px" }}>
         {ESTADOS.map((e, i) => {
-          const done    = i <= idxActual;
-          const current = i === idxActual;
+          const completado = i < idxActual;   // pasos YA superados
+          const current    = i === idxActual; // paso actual
+          const pendiente  = i > idxActual;   // pasos futuros
           return (
             <div key={e.key} style={{ display: "flex", gap: "16px",
               alignItems: "flex-start", marginBottom: i < ESTADOS.length - 1 ? "24px" : 0 }}>
@@ -1061,20 +1062,24 @@ function ScreenMiSolicitud({ historial, loading, onNav }) {
                   width: "42px", height: "42px", borderRadius: "50%",
                   background: current
                     ? "linear-gradient(135deg,#3B82F6,#2563EB)"
-                    : done ? "#F0FDF4" : "#F1F5F9",
-                  border: current ? "none" : done ? "2px solid #86EFAC" : "2px solid #E2E8F0",
+                    : completado ? "#F0FDF4" : "#F1F5F9",
+                  border: current
+                    ? "none"
+                    : completado ? "2px solid #86EFAC" : "2px solid #E2E8F0",
                   display: "flex", alignItems: "center", justifyContent: "center",
                   fontSize: "18px", flexShrink: 0,
                   boxShadow: current ? "0 4px 16px rgba(59,130,246,0.3)" : "none",
-                }}>{e.icon}</div>
+                  opacity: pendiente ? 0.4 : 1,
+                }}>{completado ? "✓" : e.icon}</div>
                 {i < ESTADOS.length - 1 && (
                   <div style={{ width: "2px", height: "24px", marginTop: "4px",
-                    background: i < idxActual ? "#86EFAC" : "#E2E8F0" }} />
+                    background: completado ? "#86EFAC" : "#E2E8F0" }} />
                 )}
               </div>
               <div style={{ paddingTop: "8px" }}>
                 <div style={{ fontFamily: "'DM Sans',sans-serif", fontWeight: "700",
-                  fontSize: "14px", color: done ? "#0F172A" : "#94A3B8" }}>
+                  fontSize: "14px",
+                  color: current ? "#0F172A" : completado ? "#15803D" : "#94A3B8" }}>
                   {e.label}
                 </div>
                 {current && (
@@ -1087,8 +1092,8 @@ function ScreenMiSolicitud({ historial, loading, onNav }) {
         })}
       </div>
 
-      {/* Plomeros notificados — solo mientras está PENDIENTE */}
-      {estado === "PENDIENTE" && activa.plomeros_notificados?.length > 0 && (
+      {/* Plomeros notificados — solo mientras está PENDIENTE y NO venció */}
+      {estado === "PENDIENTE" && !vencida && activa.plomeros_notificados?.length > 0 && (
         <div style={{ background: "#fff", borderRadius: "16px",
           border: "1.5px solid #F1F5F9", padding: "18px 20px", marginBottom: "16px" }}>
           <div style={{ fontFamily: "'DM Sans',sans-serif", fontWeight: "700",
@@ -1501,27 +1506,32 @@ export default function HomeCliente({ onLogout }) {
   const [notifs, setNotifs] = useSolicitudNotifs(token);
   const notifCount = notifs.filter(n => !n.leida).length;
 
-  // Cargar historial al montar — usa el endpoint con detalle completo
-  useEffect(() => {
-    const cargar = async () => {
-      setLoadingH(true); setErrorH("");
+  // Cargar historial — función reutilizable para poder refrescarlo
+  const cargarHistorial = useCallback(async () => {
+    setLoadingH(true); setErrorH("");
+    try {
+      const res = await api.get("/solicitudes/mis-solicitudes");
+      setHistorial(Array.isArray(res.data) ? res.data : []);
+    } catch (e) {
       try {
-        const res = await api.get("/solicitudes/mis-solicitudes");
-        setHistorial(Array.isArray(res.data) ? res.data : []);
-      } catch (e) {
-        // Fallback al endpoint anterior si el nuevo no está disponible
-        try {
-          const res2 = await api.get("/solicitudes/buscar", { params: { q: "" } });
-          setHistorial(Array.isArray(res2.data) ? res2.data : []);
-        } catch {
-          setErrorH(e.message);
-        }
-      } finally {
-        setLoadingH(false);
+        const res2 = await api.get("/solicitudes/buscar", { params: { q: "" } });
+        setHistorial(Array.isArray(res2.data) ? res2.data : []);
+      } catch {
+        setErrorH(e.message);
       }
-    };
-    cargar();
+    } finally {
+      setLoadingH(false);
+    }
   }, []);
+
+  // Cargar al montar
+  useEffect(() => { cargarHistorial(); }, [cargarHistorial]);
+
+  // Refrescar historial cada 15 segundos (sincroniza con el polling de notifs)
+  useEffect(() => {
+    const interval = setInterval(cargarHistorial, 15000);
+    return () => clearInterval(interval);
+  }, [cargarHistorial]);
 
   const logout = useAuthStore(s => s.logout);
   const user   = useAuthStore(s => s.user);
@@ -1534,7 +1544,6 @@ export default function HomeCliente({ onLogout }) {
   const handleBuscar = (texto, urg) => {
     setProblema(texto);
     setUrgencia(urg);
-    // Calcular IDs a excluir: plomeros de solicitudes pendientes que vencieron
     const ahora = new Date();
     const excluidos = new Set();
     historial.forEach(h => {
@@ -1551,6 +1560,19 @@ export default function HomeCliente({ onLogout }) {
     setScreen("resultados");
   };
 
+  // Re-solicitar con la misma descripción, excluyendo quienes no respondieron
+  const handleReSolicitar = (solicitudVencida) => {
+    const desc = solicitudVencida.descripcion_raw || "";
+    setProblema(desc);
+    // Detectar urgencia por palabras clave
+    const URGENCIA_KEYWORDS = ["inunda","pérdida","perder","no cierra","roto","explota","revienta","urgente","emergencia","fuga","chorrea","sale agua"];
+    setUrgencia(URGENCIA_KEYWORDS.some(k => desc.toLowerCase().includes(k)));
+    // Excluir los plomeros que no respondieron esta solicitud
+    const excluidos = (solicitudVencida.plomeros_notificados || []).map(p => p.id_plomero);
+    setIdsExcluidos(excluidos);
+    setScreen("resultados");
+  };
+
   // Cuando el cliente quiere volver a contratar a un plomero finalizado
   const handleSolicitarDeNuevo = (h) => {
     // Ir al inicio para que escriba el problema (con el nombre del plomero como sugerencia)
@@ -1560,7 +1582,8 @@ export default function HomeCliente({ onLogout }) {
   const handleEnviar = (resp) => {
     setSolicitud(resp);
     if (resp) setHistorial(prev => [resp, ...prev]);
-    setScreen("estado");
+    cargarHistorial(); // refrescar con datos reales del backend
+    setScreen("mi-solicitud");
   };
 
   return (
@@ -1597,6 +1620,7 @@ export default function HomeCliente({ onLogout }) {
           historial={historial}
           loading={loadingHistorial}
           onNav={setScreen}
+          onReSolicitar={handleReSolicitar}
         />
       )}
       {screen === "trabajos-finalizados" && (

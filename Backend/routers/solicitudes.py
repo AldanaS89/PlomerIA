@@ -23,20 +23,16 @@ async def crear_solicitud(
     return solicitud_service.crear_solicitud(db, data, id_usuario)
 
 
-# ── MIS SOLICITUDES CON DETALLE (cliente) ────────────────────────────────────
-# Devuelve las solicitudes del usuario logueado con:
-# - plomero asignado (si aceptó)
-# - plomeros_notificados: lista con datos completos de cada uno
+# ── RUTAS FIJAS PRIMERO (antes que /{id}) ─────────────────────────────────────
 
 @router.get("/mis-solicitudes")
 def mis_solicitudes_con_detalle(
     db: Session = Depends(get_db),
     id_usuario: int = Depends(get_usuario_actual),
 ):
+    """Solicitudes del cliente logueado con datos completos de plomeros notificados."""
     return solicitud_repository.listar_por_usuario_con_detalle(db, id_usuario)
 
-
-# ── BUSCAR (compatibilidad con endpoint anterior) ─────────────────────────────
 
 @router.get("/buscar")
 def buscar(
@@ -44,10 +40,9 @@ def buscar(
     db: Session = Depends(get_db),
     id_usuario: int = Depends(get_usuario_actual),
 ):
+    """Compatibilidad con endpoint anterior."""
     return solicitud_repository.listar_por_usuario_con_detalle(db, id_usuario)
 
-
-# ── ENDPOINTS DEL PLOMERO ─────────────────────────────────────────────────────
 
 @router.get("/plomero/me")
 def mis_solicitudes_plomero(
@@ -57,19 +52,39 @@ def mis_solicitudes_plomero(
     return solicitud_service.listar_por_plomero_s(db, id_plomero)
 
 
+# ── RUTAS CON PARÁMETRO DINÁMICO (al final) ───────────────────────────────────
+
+@router.get("/{id_solicitud}")
+def obtener(
+    id_solicitud: int,
+    db: Session = Depends(get_db),
+    id_usuario: int = Depends(get_usuario_actual),
+):
+    s = solicitud_repository.obtener_por_id(db, id_solicitud)
+    if not s:
+        raise HTTPException(status_code=404, detail="Solicitud no encontrada")
+    if s.id_usuario != id_usuario:
+        raise HTTPException(status_code=403, detail="No tenés acceso a esta solicitud")
+    return s
+
+
 @router.patch("/{id_solicitud}/responder")
 def responder_solicitud(
     id_solicitud: int,
-    accion: str,  # "aceptar" o "rechazar"
+    accion: str,
     db: Session = Depends(get_db),
     id_plomero: int = Depends(get_plomero_actual),
 ):
-    solicitud = db.query(Solicitud).filter(Solicitud.id_solicitud == id_solicitud).first()
+    solicitud = db.query(Solicitud).filter(
+        Solicitud.id_solicitud == id_solicitud
+    ).first()
     if not solicitud:
         raise HTTPException(status_code=404, detail="La solicitud ya no existe.")
     if solicitud.estado == EstadoSolicitud.ACEPTADO and accion == "aceptar":
-        raise HTTPException(status_code=400, detail="Lo sentimos, otro plomero ya tomó este trabajo.")
-
+        raise HTTPException(
+            status_code=400,
+            detail="Lo sentimos, otro plomero ya tomó este trabajo."
+        )
     if accion == "aceptar":
         solicitud.estado     = EstadoSolicitud.ACEPTADO
         solicitud.id_plomero = id_plomero
@@ -79,4 +94,7 @@ def responder_solicitud(
         db.commit()
         return {"status": "ok", "mensaje": "Solicitud rechazada"}
     else:
-        raise HTTPException(status_code=400, detail="Acción inválida. Usá 'aceptar' o 'rechazar'.")
+        raise HTTPException(
+            status_code=400,
+            detail="Acción inválida. Usá 'aceptar' o 'rechazar'."
+        )
