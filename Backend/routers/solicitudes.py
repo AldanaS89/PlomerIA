@@ -93,8 +93,40 @@ def responder_solicitud(
     elif accion == "rechazar":
         db.commit()
         return {"status": "ok", "mensaje": "Solicitud rechazada"}
+    elif accion == "cancelar":
+        solicitud.estado              = EstadoSolicitud.RECHAZADO
+        solicitud.ids_plomeros_sugeridos = None  # resetea exclusión de plomeros
+        db.commit()
+        return {"status": "ok", "mensaje": "Solicitud cancelada"}
+    elif accion == "completar":
+        solicitud.estado = EstadoSolicitud.COMPLETADO
+        db.commit()
+        return {"status": "ok", "mensaje": "Trabajo completado"}
     else:
         raise HTTPException(
             status_code=400,
-            detail="Acción inválida. Usá 'aceptar' o 'rechazar'."
+            detail="Acción inválida. Usá 'aceptar', 'rechazar', 'cancelar' o 'completar'."
         )
+
+
+@router.patch("/{id_solicitud}/cancelar")
+def cancelar_solicitud(
+    id_solicitud: int,
+    db: Session = Depends(get_db),
+    id_usuario: int = Depends(get_usuario_actual),
+):
+    """El cliente cancela su propia solicitud y resetea la exclusión de plomeros."""
+    solicitud = db.query(Solicitud).filter(
+        Solicitud.id_solicitud == id_solicitud
+    ).first()
+    if not solicitud:
+        raise HTTPException(status_code=404, detail="Solicitud no encontrada.")
+    if solicitud.id_usuario != id_usuario:
+        raise HTTPException(status_code=403, detail="No podés cancelar una solicitud que no es tuya.")
+    if solicitud.estado == EstadoSolicitud.ACEPTADO:
+        raise HTTPException(status_code=400, detail="No podés cancelar una solicitud ya aceptada.")
+
+    solicitud.estado                 = EstadoSolicitud.RECHAZADO
+    solicitud.ids_plomeros_sugeridos = None  # resetea exclusión de plomeros
+    db.commit()
+    return {"status": "ok", "mensaje": "Solicitud cancelada"}

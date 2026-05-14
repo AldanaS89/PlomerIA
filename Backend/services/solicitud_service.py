@@ -88,8 +88,25 @@ def obtener_por_id_s(db: Session, id: int) -> SolicitudResponse | None:
 def listar_por_usuario_s(db: Session, id_usuario: int) -> list[SolicitudResponse]:
     return [_to_response(s) for s in solicitud_repository.listar_por_usuario(db, id_usuario)]
 
-def listar_por_plomero_s(db: Session, id_plomero: int) -> list[SolicitudResponse]:
-    return [_to_response(s) for s in solicitud_repository.listar_por_plomero(db, id_plomero)]
+def listar_por_plomero_s(db: Session, id_plomero: int) -> list[dict]:
+    solicitudes = solicitud_repository.listar_por_plomero(db, id_plomero)
+    resultado = []
+    for s in solicitudes:
+        resultado.append({
+            "id_solicitud":     s.id_solicitud,
+            "id_usuario":       s.id_usuario,
+            "id_plomero":       s.id_plomero,
+            "descripcion_raw":  s.descripcion_raw,
+            "etiqueta_ia":      s.etiqueta_ia,
+            "urgencia_ia":      s.urgencia_ia,
+            "localidad_evento": s.localidad_evento,
+            "latitud_evento":   s.latitud_evento,
+            "longitud_evento":  s.longitud_evento,
+            "estado":           s.estado.value if hasattr(s.estado, "value") else str(s.estado),
+            "fecha":            s.fecha.isoformat() if s.fecha else None,
+            "turno_solicitado": None,
+        })
+    return resultado
 
 def _cambiar_estado_plomero(
     db:           Session,
