@@ -288,11 +288,28 @@ function ScreenProblema({ onBuscar }) {
 // ─── TURNO SELECTOR ──────────────────────────────────────────────────────────
 
 const FRANJAS_DISP = [
-  { key: "manana", label: "Mañana", rango: "08:00–13:00" },
-  { key: "tarde",  label: "Tarde",  rango: "13:00–18:00" },
-  { key: "noche",  label: "Noche",  rango: "18:00–22:00" },
+  { key: "manana", horas: [8, 9, 10, 11, 12] },
+  { key: "tarde",  horas: [13, 14, 15, 16, 17] },
+  { key: "noche",  horas: [18, 19, 20, 21] },
 ];
 const DIAS_DISP = ["Lun","Mar","Mié","Jue","Vie","Sáb","Dom"];
+
+// Nombres completos de días para mostrar con fecha
+const DIAS_NOMBRE = ["Domingo","Lunes","Martes","Miércoles","Jueves","Viernes","Sábado"];
+const MESES = ["ene","feb","mar","abr","may","jun","jul","ago","sep","oct","nov","dic"];
+
+function getFechaParaDia(diaStr) {
+  // Devuelve el próximo Date que coincida con el día de la semana
+  const IDX = { "Lun":1,"Mar":2,"Mié":3,"Jue":4,"Vie":5,"Sáb":6,"Dom":0 };
+  const hoy = new Date();
+  const hoyNum = hoy.getDay();
+  const target = IDX[diaStr] ?? 1;
+  let diff = target - hoyNum;
+  if (diff <= 0) diff += 7;
+  const fecha = new Date(hoy);
+  fecha.setDate(hoy.getDate() + diff);
+  return fecha;
+}
 
 function TurnoSelector({ plomero, turnoActual, onSelect }) {
   const agenda = plomero.agenda || {};
@@ -311,13 +328,25 @@ function TurnoSelector({ plomero, turnoActual, onSelect }) {
     FRANJAS_DISP.some(f => agenda[`${dia}_${f.key}`])
   );
 
-  // Franjas disponibles para el día elegido
-  const franjasDelDia = diaElegido
-    ? FRANJAS_DISP.filter(f => agenda[`${diaElegido}_${f.key}`])
+  // Horas disponibles para el día elegido (todas las horas de las franjas disponibles)
+  const horasDelDia = diaElegido
+    ? FRANJAS_DISP
+        .filter(f => agenda[`${diaElegido}_${f.key}`])
+        .flatMap(f => f.horas)
     : [];
 
-  const turnoSelKey = turnoActual; // "Lun_manana"
-  const [diaActual, franjaActual] = turnoSelKey ? turnoSelKey.split("_") : [null, null];
+  // Parsear turno seleccionado: "Lun_manana_9" → dia, franja, hora
+  const partesTurno = turnoActual ? turnoActual.split("_") : [];
+  const diaActual   = partesTurno[0] || null;
+  const franjaActual = partesTurno[1] || null;
+  const horaActual  = partesTurno[2] ? parseInt(partesTurno[2]) : null;
+
+  const getFranjaPorHora = (hora) => {
+    for (const f of FRANJAS_DISP) {
+      if (f.horas.includes(hora)) return f.key;
+    }
+    return "manana";
+  };
 
   return (
     <div onClick={e => e.stopPropagation()}>
@@ -327,23 +356,24 @@ function TurnoSelector({ plomero, turnoActual, onSelect }) {
         Elegí un turno
       </div>
 
-      {/* Paso 1: elegir día */}
+      {/* Paso 1: elegir día con fecha */}
       <div style={{ marginBottom: "8px" }}>
         <div style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "11px",
           color: "#64748B", marginBottom: "5px" }}>Día:</div>
-        <div style={{ display: "flex", flexWrap: "wrap", gap: "4px" }}>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: "5px" }}>
           {diasDisponibles.map(dia => {
-            const esDiaActual = diaActual === dia;
+            const esDiaActual  = diaActual === dia;
             const esDiaElegido = diaElegido === dia;
+            const fecha = getFechaParaDia(dia);
+            const label = `${dia} ${fecha.getDate()}/${fecha.getMonth() + 1}`;
             return (
               <button key={dia}
                 onClick={() => {
                   setDiaElegido(esDiaElegido ? null : dia);
-                  // Si cambiás de día, limpiá el turno si era de ese día
                   if (esDiaActual) onSelect(plomero.id_plomero, null);
                 }}
                 style={{
-                  padding: "5px 10px", borderRadius: "8px",
+                  padding: "6px 11px", borderRadius: "8px",
                   border: esDiaActual ? "2px solid #3B82F6" : "1.5px solid #E2E8F0",
                   background: esDiaActual ? "#EFF6FF" : esDiaElegido ? "#F1F5F9" : "#fff",
                   color: esDiaActual ? "#1D4ED8" : "#475569",
@@ -351,36 +381,36 @@ function TurnoSelector({ plomero, turnoActual, onSelect }) {
                   fontWeight: esDiaActual || esDiaElegido ? "700" : "500",
                   cursor: "pointer", transition: "all 0.15s",
                 }}>
-                {dia} {esDiaActual ? "✓" : ""}
+                {label}{esDiaActual ? " ✓" : ""}
               </button>
             );
           })}
         </div>
       </div>
 
-      {/* Paso 2: elegir franja */}
+      {/* Paso 2: elegir hora exacta */}
       {diaElegido && (
         <div>
           <div style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "11px",
-            color: "#64748B", marginBottom: "5px" }}>Horario:</div>
-          <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
-            {franjasDelDia.map(f => {
-              const key = `${diaElegido}_${f.key}`;
+            color: "#64748B", marginBottom: "5px" }}>Hora:</div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: "5px" }}>
+            {horasDelDia.map(hora => {
+              const franja = getFranjaPorHora(hora);
+              const key = `${diaElegido}_${franja}_${hora}`;
               const sel = turnoActual === key;
               return (
-                <button key={key}
+                <button key={hora}
                   onClick={() => onSelect(plomero.id_plomero, sel ? null : key)}
                   style={{
-                    padding: "7px 12px", borderRadius: "10px",
+                    padding: "7px 12px", borderRadius: "9px",
                     border: sel ? "none" : "1.5px solid #E2E8F0",
                     background: sel ? "#3B82F6" : "#F8FAFC",
                     color: sel ? "#fff" : "#475569",
-                    fontFamily: "'DM Sans',sans-serif", fontSize: "12px",
+                    fontFamily: "'DM Sans',sans-serif", fontSize: "13px",
                     fontWeight: "600", cursor: "pointer", transition: "all 0.15s",
-                    display: "flex", flexDirection: "column", alignItems: "center", gap: "1px",
+                    minWidth: "52px", textAlign: "center",
                   }}>
-                  <span>{f.label}</span>
-                  <span style={{ fontSize: "10px", opacity: 0.75 }}>{f.rango}</span>
+                  {hora}:00
                 </button>
               );
             })}
@@ -388,14 +418,16 @@ function TurnoSelector({ plomero, turnoActual, onSelect }) {
         </div>
       )}
 
-      {/* Turno confirmado */}
-      {turnoActual && (
+      {/* Confirmación */}
+      {turnoActual && diaActual && horaActual && (
         <div style={{ marginTop: "8px", background: "#F0FDF4",
           border: "1px solid #86EFAC", borderRadius: "8px",
           padding: "6px 10px", fontFamily: "'DM Sans',sans-serif",
           fontSize: "11px", color: "#15803D", fontWeight: "600" }}>
-          ✓ {diaActual} · {FRANJAS_DISP.find(f => f.key === franjaActual)?.label}{" "}
-          ({FRANJAS_DISP.find(f => f.key === franjaActual)?.rango})
+          ✓ {(() => {
+            const fecha = getFechaParaDia(diaActual);
+            return `${diaActual} ${fecha.getDate()}/${fecha.getMonth() + 1} a las ${horaActual}:00hs`;
+          })()}
         </div>
       )}
     </div>
@@ -944,13 +976,272 @@ function ScreenEstado({ solicitud, onNav }) {
 
 // ─── SCREEN: MI SOLICITUD ────────────────────────────────────────────────────
 
+function SolicitudCard({ h, onReSolicitar }) {
+  const estado = (h.estado || "").toUpperCase();
+  const ahora  = new Date();
+  const mins   = h.fecha ? (ahora - new Date(h.fecha)) / 1000 / 60 : 0;
+  const limite = h.urgencia_ia === "URGENTE" ? 30 : 180;
+  const vencida = estado === "PENDIENTE" && mins > limite;
+
+  const ESTADOS = [
+    { key: "PENDIENTE", label: "Solicitud enviada",       icon: "📡", desc: "Esperando que un profesional acepte" },
+    { key: "ACEPTADO",  label: "Trabajo aceptado",        icon: "✅", desc: "Un plomero aceptó tu solicitud" },
+    { key: "EN_CAMINO", label: "El plomero va en camino", icon: "🚗", desc: "Ya está yendo a tu domicilio" },
+  ];
+  const idxActual = ESTADOS.findIndex(e => e.key === estado);
+
+  return (
+    <div style={{ background: "#fff", borderRadius: "20px",
+      border: vencida ? "1.5px solid #FECACA" : "1.5px solid #F1F5F9",
+      padding: "20px", marginBottom: "16px",
+      boxShadow: "0 2px 16px rgba(0,0,0,0.05)" }}>
+
+      {vencida && (
+        <div style={{ background: "#FEF2F2", border: "1px solid #FECACA",
+          borderRadius: "12px", padding: "14px 16px", marginBottom: "16px",
+          display: "flex", gap: "10px", alignItems: "flex-start" }}>
+          <span style={{ fontSize: "18px" }}>⏰</span>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontFamily: "'DM Sans',sans-serif", fontWeight: "800",
+              fontSize: "13px", color: "#B91C1C", marginBottom: "4px" }}>
+              Nadie respondió esta solicitud
+            </div>
+            <div style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "12px",
+              color: "#7F1D1D", marginBottom: "10px" }}>
+              El tiempo venció. Te recomendamos otros profesionales disponibles.
+            </div>
+            <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+              <button onClick={() => onReSolicitar(h)} style={{
+                background: "linear-gradient(135deg,#EF4444,#B91C1C)",
+                color: "#fff", border: "none", borderRadius: "8px",
+                padding: "7px 14px", fontFamily: "'DM Sans',sans-serif",
+                fontWeight: "700", fontSize: "12px", cursor: "pointer",
+              }}>Volver a solicitar →</button>
+              <CancelarSolicitudBtn idSolicitud={h.id_solicitud} inline />
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div style={{ background: "#F8FAFC", borderRadius: "10px",
+        padding: "10px 14px", marginBottom: "16px" }}>
+        <div style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "10px",
+          fontWeight: "700", color: "#94A3B8", textTransform: "uppercase",
+          letterSpacing: "0.6px", marginBottom: "4px" }}>Tu problema</div>
+        <div style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "13px",
+          color: "#0F172A", lineHeight: "1.5" }}>{h.descripcion_raw}</div>
+        <div style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "11px",
+          color: "#94A3B8", marginTop: "6px" }}>
+          {h.fecha ? new Date(h.fecha).toLocaleString("es-AR") : ""}
+        </div>
+      </div>
+
+      <div style={{ padding: "4px 0", marginBottom: "16px" }}>
+        {ESTADOS.map((e, i) => {
+          const completado = i < idxActual;
+          const current    = i === idxActual;
+          const pendiente  = i > idxActual;
+          return (
+            <div key={e.key} style={{ display: "flex", gap: "12px",
+              alignItems: "flex-start", marginBottom: i < ESTADOS.length - 1 ? "16px" : 0 }}>
+              <div style={{ display: "flex", flexDirection: "column", alignItems: "center" }}>
+                <div style={{
+                  width: "36px", height: "36px", borderRadius: "50%",
+                  background: current ? "linear-gradient(135deg,#3B82F6,#2563EB)"
+                    : completado ? "#F0FDF4" : "#F1F5F9",
+                  border: current ? "none" : completado ? "2px solid #86EFAC" : "2px solid #E2E8F0",
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  fontSize: "15px", flexShrink: 0, opacity: pendiente ? 0.4 : 1,
+                  boxShadow: current ? "0 3px 12px rgba(59,130,246,0.3)" : "none",
+                }}>{completado ? "✓" : e.icon}</div>
+                {i < ESTADOS.length - 1 && (
+                  <div style={{ width: "2px", height: "16px", marginTop: "3px",
+                    background: completado ? "#86EFAC" : "#E2E8F0" }} />
+                )}
+              </div>
+              <div style={{ paddingTop: "6px" }}>
+                <div style={{ fontFamily: "'DM Sans',sans-serif", fontWeight: "700",
+                  fontSize: "13px",
+                  color: current ? "#0F172A" : completado ? "#15803D" : "#94A3B8" }}>
+                  {e.label}
+                </div>
+                {current && (
+                  <div style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "12px",
+                    color: "#64748B", marginTop: "2px" }}>{e.desc}</div>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {estado === "PENDIENTE" && !vencida && h.plomeros_notificados?.length > 0 && (
+        <div style={{ background: "#F8FAFC", borderRadius: "12px",
+          border: "1px solid #E2E8F0", padding: "14px 16px", marginBottom: "12px" }}>
+          <div style={{ fontFamily: "'DM Sans',sans-serif", fontWeight: "700",
+            fontSize: "10px", color: "#94A3B8", textTransform: "uppercase",
+            letterSpacing: "0.6px", marginBottom: "4px" }}>
+            Profesionales notificados ({h.plomeros_notificados.length})
+          </div>
+          <div style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "11px",
+            color: "#64748B", marginBottom: "10px" }}>
+            El primero que acepte queda asignado.
+          </div>
+          {h.plomeros_notificados.map((p, idx) => (
+            <div key={p.id_plomero} style={{
+              display: "flex", gap: "10px", alignItems: "center",
+              paddingTop: idx > 0 ? "8px" : 0,
+              paddingBottom: idx < h.plomeros_notificados.length - 1 ? "8px" : 0,
+              borderBottom: idx < h.plomeros_notificados.length - 1 ? "1px solid #F1F5F9" : "none",
+            }}>
+              <Avatar src={p.foto_perfil_path} nombre={p.nombre} apellido={p.apellido} size={38} />
+              <div style={{ flex: 1 }}>
+                <div style={{ fontFamily: "'DM Sans',sans-serif", fontWeight: "700",
+                  fontSize: "13px", color: "#0F172A" }}>{p.nombre} {p.apellido}</div>
+                <div style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "11px", color: "#94A3B8" }}>
+                  📍 {p.localidad}{p.puntuacion > 0 ? ` · ⭐ ${p.puntuacion?.toFixed(1)}` : ""}
+                </div>
+              </div>
+              <div style={{ background: "#FFFBEB", border: "1px solid #FDE68A",
+                borderRadius: "6px", padding: "3px 8px",
+                fontFamily: "'DM Sans',sans-serif", fontSize: "10px",
+                color: "#92400E", fontWeight: "600" }}>⏳ Esperando</div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {h.plomero && (
+        <div style={{ background: "#F0FDF4", border: "1px solid #86EFAC",
+          borderRadius: "12px", padding: "14px 16px" }}>
+          <div style={{ fontFamily: "'DM Sans',sans-serif", fontWeight: "700",
+            fontSize: "10px", color: "#15803D", textTransform: "uppercase",
+            letterSpacing: "0.6px", marginBottom: "10px" }}>Plomero asignado</div>
+          <div style={{ display: "flex", gap: "12px", alignItems: "center" }}>
+            <Avatar src={h.plomero?.foto_perfil_path}
+              nombre={h.plomero?.nombre} apellido={h.plomero?.apellido} size={48} />
+            <div>
+              <div style={{ fontFamily: "'DM Sans',sans-serif", fontWeight: "800",
+                fontSize: "15px", color: "#0F172A" }}>
+                {h.plomero?.nombre} {h.plomero?.apellido}
+              </div>
+              <div style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "12px", color: "#64748B" }}>
+                📍 {h.plomero?.localidad}
+              </div>
+              {h.plomero?.telefono && (
+                <a href={`tel:${h.plomero.telefono}`} style={{
+                  display: "inline-flex", alignItems: "center", gap: "5px",
+                  marginTop: "6px", background: "#fff",
+                  border: "1px solid #86EFAC", borderRadius: "7px",
+                  padding: "5px 10px", fontFamily: "'DM Sans',sans-serif",
+                  fontSize: "12px", color: "#15803D", fontWeight: "600",
+                  textDecoration: "none",
+                }}>📞 Llamar</a>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Botón cancelar — para todas las solicitudes PENDIENTES */}
+      {estado === "PENDIENTE" && !vencida && (
+        <CancelarSolicitudBtn idSolicitud={h.id_solicitud} />
+      )}
+    </div>
+  );
+}
+
+function CancelarSolicitudBtn({ idSolicitud, inline = false }) {
+  const [confirmando, setConfirmando] = useState(false);
+  const [loading, setLoading]         = useState(false);
+  const [cancelada, setCancelada]     = useState(false);
+
+  const handleCancelar = async () => {
+    setLoading(true);
+    try {
+      await api.patch(`/solicitudes/${idSolicitud}/cancelar`);
+      setCancelada(true);
+    } catch {
+      setCancelada(true);
+    } finally {
+      setLoading(false);
+      setConfirmando(false);
+    }
+  };
+
+  if (cancelada) return (
+    <div style={{
+      marginTop: inline ? 0 : "12px",
+      background: "#F8FAFC", borderRadius: "8px", padding: "6px 12px",
+      fontFamily: "'DM Sans',sans-serif", fontSize: "12px", color: "#94A3B8",
+    }}>
+      Solicitud cancelada
+    </div>
+  );
+
+  if (confirmando) return (
+    <div style={{
+      marginTop: inline ? 0 : "12px",
+      background: inline ? "rgba(0,0,0,0.08)" : "#FEF2F2",
+      border: inline ? "none" : "1px solid #FECACA",
+      borderRadius: "10px", padding: "10px 12px",
+      display: "flex", gap: "8px", alignItems: "center", flexWrap: "wrap",
+    }}>
+      <span style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "12px",
+        color: inline ? "#fff" : "#B91C1C", fontWeight: "600" }}>
+        ¿Cancelar?
+      </span>
+      <div style={{ display: "flex", gap: "6px" }}>
+        <button onClick={() => setConfirmando(false)} style={{
+          background: "#F8FAFC", border: "1px solid #E2E8F0",
+          borderRadius: "6px", padding: "4px 10px",
+          fontFamily: "'DM Sans',sans-serif", fontSize: "12px",
+          color: "#475569", cursor: "pointer", fontWeight: "600",
+        }}>No</button>
+        <button onClick={handleCancelar} disabled={loading} style={{
+          background: "#EF4444", border: "none", borderRadius: "6px",
+          padding: "4px 10px", fontFamily: "'DM Sans',sans-serif",
+          fontSize: "12px", color: "#fff", cursor: "pointer", fontWeight: "700",
+        }}>{loading ? "..." : "Sí"}</button>
+      </div>
+    </div>
+  );
+
+  if (inline) return (
+    <button onClick={() => setConfirmando(true)} style={{
+      background: "rgba(0,0,0,0.15)", border: "1px solid rgba(255,255,255,0.2)",
+      borderRadius: "8px", padding: "7px 14px",
+      fontFamily: "'DM Sans',sans-serif", fontSize: "12px",
+      color: "#fff", cursor: "pointer", fontWeight: "600",
+    }}>
+      Cancelar solicitud
+    </button>
+  );
+
+  return (
+    <button onClick={() => setConfirmando(true)} style={{
+      marginTop: "12px", width: "100%", background: "transparent",
+      border: "1px solid #E2E8F0", borderRadius: "10px", padding: "9px",
+      fontFamily: "'DM Sans',sans-serif", fontSize: "12px",
+      color: "#94A3B8", cursor: "pointer", fontWeight: "600",
+      transition: "all 0.15s",
+    }}
+    onMouseEnter={e => { e.target.style.borderColor = "#FECACA"; e.target.style.color = "#EF4444"; }}
+    onMouseLeave={e => { e.target.style.borderColor = "#E2E8F0"; e.target.style.color = "#94A3B8"; }}
+    >
+      Cancelar solicitud
+    </button>
+  );
+}
+
+
 function ScreenMiSolicitud({ historial, loading, onNav, onReSolicitar }) {
-  const activa = historial
+  const activas = historial
     .filter(h => {
       const e = (h.estado || "").toLowerCase();
       return e === "pendiente" || e === "aceptado";
     })
-    .sort((a, b) => new Date(b.fecha) - new Date(a.fecha))[0];
+    .sort((a, b) => new Date(b.fecha) - new Date(a.fecha));
 
   if (loading) return (
     <div style={{ display: "flex", justifyContent: "center", padding: "80px" }}>
@@ -958,7 +1249,7 @@ function ScreenMiSolicitud({ historial, loading, onNav, onReSolicitar }) {
     </div>
   );
 
-  if (!activa) return (
+  if (activas.length === 0) return (
     <div style={{ maxWidth: "600px", margin: "0 auto", padding: "60px 24px", textAlign: "center" }}>
       <div style={{ fontSize: "52px", marginBottom: "16px" }}>📭</div>
       <h2 style={{ fontFamily: "'DM Sans',sans-serif", fontWeight: "800",
@@ -978,210 +1269,31 @@ function ScreenMiSolicitud({ historial, loading, onNav, onReSolicitar }) {
     </div>
   );
 
-  const estado = (activa.estado || "").toUpperCase();
-
-  // Calcular si la solicitud venció (3hs normal, 30min urgencia)
-  const fechaSolicitud = activa.fecha ? new Date(activa.fecha) : null;
-  const ahora = new Date();
-  const minutosTranscurridos = fechaSolicitud
-    ? (ahora - fechaSolicitud) / 1000 / 60
-    : 0;
-  const esUrgente = activa.urgencia_ia === "URGENTE";
-  const tiempoLimite = esUrgente ? 30 : 180; // minutos
-  const vencida = estado === "PENDIENTE" && minutosTranscurridos > tiempoLimite;
-
-  const ESTADOS = [
-    { key: "PENDIENTE", label: "Solicitud enviada",       icon: "📡", desc: "Esperando que un profesional acepte" },
-    { key: "ACEPTADO",  label: "Trabajo aceptado",        icon: "✅", desc: "Un plomero aceptó tu solicitud" },
-    { key: "EN_CAMINO", label: "El plomero va en camino", icon: "🚗", desc: "Ya está yendo a tu domicilio" },
-  ];
-  const idxActual = ESTADOS.findIndex(e => e.key === estado);
-
   return (
     <div style={{ maxWidth: "600px", margin: "0 auto", padding: "32px 24px" }}>
       <h1 style={{ fontFamily: "'DM Sans',sans-serif", fontWeight: "800",
-        fontSize: "22px", color: "#0F172A", letterSpacing: "-0.4px", margin: "0 0 24px" }}>
-        Mi solicitud activa
+        fontSize: "22px", color: "#0F172A", letterSpacing: "-0.4px", margin: "0 0 6px" }}>
+        Mis solicitudes activas
       </h1>
+      <p style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "13px",
+        color: "#94A3B8", margin: "0 0 24px" }}>
+        {activas.length} solicitud{activas.length > 1 ? "es" : ""} en curso
+      </p>
 
-      {/* Banner de solicitud vencida */}
-      {vencida && (
-        <div style={{ background: "#FEF2F2", border: "1.5px solid #FECACA",
-          borderRadius: "14px", padding: "16px 18px", marginBottom: "20px",
-          display: "flex", gap: "12px", alignItems: "flex-start" }}>
-          <span style={{ fontSize: "22px" }}>⏰</span>
-          <div>
-            <div style={{ fontFamily: "'DM Sans',sans-serif", fontWeight: "800",
-              fontSize: "14px", color: "#B91C1C", marginBottom: "4px" }}>
-              Nadie respondió tu solicitud
-            </div>
-            <div style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "13px",
-              color: "#7F1D1D", lineHeight: "1.5", marginBottom: "12px" }}>
-              El tiempo de respuesta venció. Podés volver a solicitar — 
-              te vamos a recomendar otros profesionales disponibles.
-            </div>
-            <button onClick={() => onReSolicitar(activa)} style={{
-              background: "linear-gradient(135deg,#EF4444,#B91C1C)",
-              color: "#fff", border: "none", borderRadius: "10px",
-              padding: "9px 18px", fontFamily: "'DM Sans',sans-serif",
-              fontWeight: "700", fontSize: "13px", cursor: "pointer",
-            }}>Volver a solicitar →</button>
-          </div>
-        </div>
-      )}
-
-      {/* Descripción del problema */}
-      <div style={{ background: "#F8FAFC", border: "1.5px solid #E2E8F0",
-        borderRadius: "14px", padding: "16px 18px", marginBottom: "20px" }}>
-        <div style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "11px",
-          fontWeight: "700", color: "#94A3B8", textTransform: "uppercase",
-          letterSpacing: "0.6px", marginBottom: "6px" }}>Tu problema</div>
-        <div style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "14px",
-          color: "#0F172A", lineHeight: "1.5" }}>
-          {activa.descripcion_raw}
-        </div>
-        <div style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "11px",
-          color: "#94A3B8", marginTop: "8px" }}>
-          {activa.fecha ? new Date(activa.fecha).toLocaleString("es-AR") : ""}
-        </div>
-      </div>
-
-      {/* Timeline */}
-      <div style={{ background: "#fff", borderRadius: "20px",
-        border: "1.5px solid #F1F5F9", padding: "24px",
-        boxShadow: "0 2px 16px rgba(0,0,0,0.05)", marginBottom: "20px" }}>
-        {ESTADOS.map((e, i) => {
-          const completado = i < idxActual;   // pasos YA superados
-          const current    = i === idxActual; // paso actual
-          const pendiente  = i > idxActual;   // pasos futuros
-          return (
-            <div key={e.key} style={{ display: "flex", gap: "16px",
-              alignItems: "flex-start", marginBottom: i < ESTADOS.length - 1 ? "24px" : 0 }}>
-              <div style={{ display: "flex", flexDirection: "column", alignItems: "center" }}>
-                <div style={{
-                  width: "42px", height: "42px", borderRadius: "50%",
-                  background: current
-                    ? "linear-gradient(135deg,#3B82F6,#2563EB)"
-                    : completado ? "#F0FDF4" : "#F1F5F9",
-                  border: current
-                    ? "none"
-                    : completado ? "2px solid #86EFAC" : "2px solid #E2E8F0",
-                  display: "flex", alignItems: "center", justifyContent: "center",
-                  fontSize: "18px", flexShrink: 0,
-                  boxShadow: current ? "0 4px 16px rgba(59,130,246,0.3)" : "none",
-                  opacity: pendiente ? 0.4 : 1,
-                }}>{completado ? "✓" : e.icon}</div>
-                {i < ESTADOS.length - 1 && (
-                  <div style={{ width: "2px", height: "24px", marginTop: "4px",
-                    background: completado ? "#86EFAC" : "#E2E8F0" }} />
-                )}
-              </div>
-              <div style={{ paddingTop: "8px" }}>
-                <div style={{ fontFamily: "'DM Sans',sans-serif", fontWeight: "700",
-                  fontSize: "14px",
-                  color: current ? "#0F172A" : completado ? "#15803D" : "#94A3B8" }}>
-                  {e.label}
-                </div>
-                {current && (
-                  <div style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "13px",
-                    color: "#64748B", marginTop: "3px" }}>{e.desc}</div>
-                )}
-              </div>
-            </div>
-          );
-        })}
-      </div>
-
-      {/* Plomeros notificados — solo mientras está PENDIENTE y NO venció */}
-      {estado === "PENDIENTE" && !vencida && activa.plomeros_notificados?.length > 0 && (
-        <div style={{ background: "#fff", borderRadius: "16px",
-          border: "1.5px solid #F1F5F9", padding: "18px 20px", marginBottom: "16px" }}>
-          <div style={{ fontFamily: "'DM Sans',sans-serif", fontWeight: "700",
-            fontSize: "11px", color: "#94A3B8", textTransform: "uppercase",
-            letterSpacing: "0.6px", marginBottom: "6px" }}>
-            Profesionales notificados ({activa.plomeros_notificados.length})
-          </div>
-          <p style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "12px",
-            color: "#64748B", marginBottom: "14px" }}>
-            El primero que acepte queda asignado a tu trabajo.
-          </p>
-          {activa.plomeros_notificados.map((p, idx) => (
-            <div key={p.id_plomero} style={{
-              display: "flex", gap: "12px", alignItems: "center",
-              paddingTop: idx > 0 ? "10px" : 0,
-              paddingBottom: idx < activa.plomeros_notificados.length - 1 ? "10px" : 0,
-              borderBottom: idx < activa.plomeros_notificados.length - 1 ? "1px solid #F8FAFC" : "none",
-            }}>
-              <Avatar src={p.foto_perfil_path}
-                nombre={p.nombre} apellido={p.apellido} size={44} />
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontFamily: "'DM Sans',sans-serif", fontWeight: "700",
-                  fontSize: "14px", color: "#0F172A" }}>
-                  {p.nombre} {p.apellido}
-                </div>
-                <div style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "12px",
-                  color: "#94A3B8", marginTop: "2px" }}>
-                  📍 {p.localidad}
-                  {p.puntuacion > 0 && (
-                    <span style={{ marginLeft: "8px" }}>⭐ {p.puntuacion?.toFixed(1)}</span>
-                  )}
-                </div>
-              </div>
-              <div style={{
-                background: "#FFFBEB", border: "1px solid #FDE68A",
-                borderRadius: "8px", padding: "4px 10px",
-                fontFamily: "'DM Sans',sans-serif", fontSize: "11px",
-                color: "#92400E", fontWeight: "600", whiteSpace: "nowrap",
-              }}>⏳ Esperando</div>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* Plomero asignado — cuando alguien aceptó */}
-      {activa.plomero && (
-        <div style={{ background: "#fff", borderRadius: "16px",
-          border: "1.5px solid #F1F5F9", padding: "18px 20px", marginBottom: "16px" }}>
-          <div style={{ fontFamily: "'DM Sans',sans-serif", fontWeight: "700",
-            fontSize: "11px", color: "#94A3B8", textTransform: "uppercase",
-            letterSpacing: "0.6px", marginBottom: "12px" }}>Plomero asignado</div>
-          <div style={{ display: "flex", gap: "14px", alignItems: "center" }}>
-            <Avatar src={activa.plomero?.foto_perfil_path}
-              nombre={activa.plomero?.nombre}
-              apellido={activa.plomero?.apellido} size={56} />
-            <div>
-              <div style={{ fontFamily: "'DM Sans',sans-serif", fontWeight: "800",
-                fontSize: "16px", color: "#0F172A" }}>
-                {activa.plomero?.nombre} {activa.plomero?.apellido}
-              </div>
-              <div style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "13px",
-                color: "#64748B", marginTop: "2px" }}>
-                📍 {activa.plomero?.localidad}
-              </div>
-              {activa.plomero?.telefono && (
-                <a href={`tel:${activa.plomero.telefono}`} style={{
-                  display: "inline-flex", alignItems: "center", gap: "6px",
-                  marginTop: "8px", background: "#F0FDF4",
-                  border: "1px solid #86EFAC", borderRadius: "8px",
-                  padding: "6px 12px", fontFamily: "'DM Sans',sans-serif",
-                  fontSize: "13px", color: "#15803D", fontWeight: "600",
-                  textDecoration: "none",
-                }}>📞 Llamar</a>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
+      {activas.map(h => (
+        <SolicitudCard key={h.id_solicitud} h={h} onReSolicitar={onReSolicitar} />
+      ))}
 
       <button onClick={() => onNav("problema")} style={{
         width: "100%", background: "#F8FAFC", border: "1.5px solid #E2E8F0",
-        borderRadius: "12px", padding: "12px",
+        borderRadius: "12px", padding: "12px", marginTop: "4px",
         fontFamily: "'DM Sans',sans-serif", fontWeight: "600",
         fontSize: "14px", color: "#475569", cursor: "pointer",
       }}>← Volver al inicio</button>
     </div>
   );
 }
+
 
 // ─── SCREEN: TRABAJOS FINALIZADOS ─────────────────────────────────────────────
 
