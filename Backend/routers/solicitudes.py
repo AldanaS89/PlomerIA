@@ -61,33 +61,6 @@ def buscar(
         q
     )
 
-
-@router.get("/{id_solicitud}")
-def obtener(
-    id_solicitud: int,
-    db: Session = Depends(get_db),
-    id_usuario: int = Depends(get_usuario_actual),
-):
-    return solicitud_service.obtener_para_usuario(
-        db,
-        id_solicitud,
-        id_usuario
-    )
-
-
-@router.patch("/{id_solicitud}/cancelar")
-def cancelar_solicitud(
-    id_solicitud: int,
-    db: Session = Depends(get_db),
-    id_usuario: int = Depends(get_usuario_actual),
-):
-    return solicitud_service.cancelar_solicitud(
-        db,
-        id_solicitud,
-        id_usuario
-    )
-
-
 # ─────────────────────────────
 # PLOMERO
 # ─────────────────────────────
@@ -101,8 +74,6 @@ def mis_solicitudes_plomero(
         db,
         id_plomero
     )
-
-
 @router.patch("/{id_solicitud}/aceptar")
 def aceptar(
     id_solicitud: int,
@@ -114,8 +85,7 @@ def aceptar(
         id_solicitud,
         id_plomero
     )
-
-
+    
 @router.patch("/{id_solicitud}/rechazar")
 def rechazar(
     id_solicitud: int,
@@ -126,9 +96,8 @@ def rechazar(
         db,
         id_solicitud,
         id_plomero
-    )
-
-
+    )   
+    
 @router.patch("/{id_solicitud}/completar")
 def completar(
     id_solicitud: int,
@@ -140,3 +109,34 @@ def completar(
         id_solicitud,
         id_plomero
     )
+       
+@router.patch("/{id_solicitud}/cancelar")
+def cancelar_solicitud(
+    id_solicitud: int,
+    db: Session = Depends(get_db),
+    id_usuario: int = Depends(get_usuario_actual),
+):
+    return solicitud_service.cancelar_solicitud(
+        db,
+        id_solicitud,
+        id_usuario
+    )
+
+# ── RUTA DINÁMICA AL FINAL ──────────────────────────────────── 
+@router.get("/{id_solicitud}")
+def obtener(
+    id_solicitud: int,
+    db: Session = Depends(get_db),
+    id_usuario: int = Depends(get_usuario_actual),
+):
+    return solicitud_service.obtener_para_usuario(
+        db,
+        id_solicitud,
+        id_usuario
+    )
+
+
+
+
+
+
