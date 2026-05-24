@@ -13,7 +13,6 @@ from schemas.solicitud import SolicitudCreate
 
 
 router = APIRouter(
-    prefix="/solicitudes",
     tags=["Solicitudes"]
 )
 

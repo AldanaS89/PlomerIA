@@ -1,11 +1,11 @@
 from pydantic import BaseModel, ConfigDict
 
+
 class UsuarioResponse(BaseModel):
     id_usuario: int
     nombre: str
     apellido: str
     email: str
-    telefono: str
     direccion: str
     localidad: str
     latitud: float

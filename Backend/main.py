@@ -1,51 +1,96 @@
-import sys
-import os
-
-from routers import disponibilidad_router
-
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
-
-from fastapi.staticfiles import StaticFiles
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from database import engine, Base
-from routers import usuarios_routes, plomeros_routes, solicitudes, calificaciones_routes
+from routers.chat_ws import router as chat_ws_router
+from database import Base, engine
 
-app = FastAPI(title="PlomerIA - Zona Sur", redirect_slashes=False)
+from routers import (
+    auth_router,
+    usuarios_routes,
+    plomeros_routes,
+    solicitudes,
+    disponibilidad_router,
+    calificaciones_routes,
+)
 
-app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
+app = FastAPI(title="PlomerIA API")
 
+# ─────────────────────────────
+# CORS
+# ─────────────────────────────
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["*"],  # en producción: dominios reales
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
+# ─────────────────────────────
+# DB
+# ─────────────────────────────
 Base.metadata.create_all(bind=engine)
 
+# ─────────────────────────────
+# PREFIX GLOBAL
+# ─────────────────────────────
 API_PREFIX = "/api"
 
-# tiene prefix="/usuarios" adentro → solo /api
-app.include_router(usuarios_routes.router, prefix=API_PREFIX)
+# ─────────────────────────────
+# ROUTERS
+# ─────────────────────────────
 
-# NO tiene prefix adentro → /api/plomeros
-app.include_router(plomeros_routes.router, prefix=API_PREFIX + "/plomeros")
+app.include_router(
+    auth_router.router,
+    prefix=f"{API_PREFIX}/auth",
+    tags=["Auth"]
+)
 
-# tiene prefix="/solicitudes" adentro → solo /api
-app.include_router(solicitudes.router, prefix=API_PREFIX)
+app.include_router(
+    usuarios_routes.router,
+    prefix=f"{API_PREFIX}/usuarios",
+    tags=["Usuarios"]
+)
 
-# NO tiene prefix adentro → /api/disponibilidad
-app.include_router(disponibilidad_router.router, prefix=API_PREFIX + "/disponibilidad")
+app.include_router(
+    plomeros_routes.router,
+    prefix=f"{API_PREFIX}/plomeros",
+    tags=["Plomeros"]
+)
 
-# tiene prefix="/calificaciones" adentro → solo /api
-app.include_router(calificaciones_routes.router, prefix=API_PREFIX)
+app.include_router(
+    solicitudes.router,
+    prefix=f"{API_PREFIX}/solicitudes",
+    tags=["Solicitudes"]
+)
 
+app.include_router(
+    disponibilidad_router.router,
+    prefix=f"{API_PREFIX}/disponibilidad",
+    tags=["Disponibilidad"]
+)
+
+app.include_router(
+    calificaciones_routes.router,
+    prefix=f"{API_PREFIX}/calificaciones",
+    tags=["Calificaciones"]
+)
+
+# WS
+app.include_router(chat_ws_router)
+# ─────────────────────────────
+# HEALTH CHECK
+# ─────────────────────────────
 @app.get("/")
-def inicio():
-    return {"mensaje": "Servidor de PlomerIA activo"}
+def root():
+    return {
+        "status": "ok",
+        "message": "PlomerIA API running 🚀"
+    }
 
+
+# ─────────────────────────────
+# RUN
+# ─────────────────────────────
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("main:app", host="127.0.0.1", port=8000, reload=True)

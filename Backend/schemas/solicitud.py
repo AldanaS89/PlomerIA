@@ -4,12 +4,10 @@ from datetime import datetime
 from typing import Optional, List
 
 class SolicitudCreate(BaseModel):
-    descripcion_raw             : str
-    solo_mujeres                : Optional[bool] = False
-    localidad_evento            : Optional[str] = "Longchamps"
-    latitud_evento              : Optional[float] = -34.85
-    longitud_evento             : Optional[float] = -58.38
-    ids_plomeros_seleccionados  : Optional[list] = []  # IDs elegidos por el cliente
+    descripcion_raw: str
+    localidad_evento: str
+    latitud_evento: float | None = None
+    longitud_evento: float | None = None
 
 class SolicitudResponse(BaseModel):
     id_solicitud    : int

@@ -8,10 +8,11 @@ import enum
 # ── ESTADOS POSIBLES ─────────────────────────────────────────────────────────
 # Esto define las fases de la solicitud para el flujo de "quien acepta primero gana"
 class EstadoSolicitud(enum.Enum):
-    PENDIENTE  = "pendiente"  # Visible para los 5 plomeros sugeridos
-    ACEPTADO   = "aceptado"   # Ya tiene plomero asignado, ocultar para el resto
-    RECHAZADO  = "rechazado"  # El plomero no pudo tomarlo
-    COMPLETADO = "completado"  # 
+    PENDIENTE = "pendiente"        # creada, sin asignar
+    ASIGNADA = "asignada"          # ya tiene plomero
+    EN_PROGRESO = "en_progreso"    # plomero aceptó y está trabajando
+    COMPLETADA = "completada"
+    CANCELADA = "cancelada"
 
 class Solicitud(Base):
     __tablename__ = "solicitudes"

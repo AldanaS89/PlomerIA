@@ -131,14 +131,6 @@ def obtener_filtrados(
     return query.all()
 
 
-# ─────────────────────────────
-# FILTRAR (para sugerir)
-# ─────────────────────────────
-
-def _distancia_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
-    return distancia_km(lat1, lon1, lat2, lon2)
-
-
 def filtrar(
     db: Session,
     genero: Optional[str] = None,

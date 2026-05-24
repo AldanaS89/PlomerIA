@@ -15,8 +15,8 @@ class Plomero(PersonaMixin, Base):
     __tablename__ = "plomeros"
 
     id_plomero        = Column(Integer, primary_key=True, index=True)
-    especialidad      = Column(SAEnum(EspecialidadEnum), nullable=False)  # valor principal para filtrar
-    especialidades    = Column(JSON, nullable=True)   # lista para mostrar en el perfil
+    especialidad      = Column(SAEnum(EspecialidadEnum))  # principal
+    especialidades    = Column(JSON)  # extras opcionales
     otra_especialidad = Column(String, nullable=True) # solo si eligió OTRA
     genero            = Column(String)
     atiende_urgencias = Column(Boolean, default=False)

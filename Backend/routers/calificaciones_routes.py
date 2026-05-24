@@ -9,9 +9,8 @@ from database import get_db
 from services import calificacion_service
 
 
-router = APIRouter(prefix="/calificaciones", tags=["Calificaciones"])
+router = APIRouter(tags=["Calificaciones"])
 
-router = APIRouter(prefix="/calificaciones", tags=["Calificaciones"])
 
 @router.post("/{id_solicitud}")
 def calificar(

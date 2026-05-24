@@ -1,11 +1,8 @@
-# repositories/disponibilidad_repository.py
-
 from datetime import datetime
 
 from sqlalchemy.orm import Session
 
 from models.bloqueHorario import BloqueHorario
-
 
 # ─────────────────────────────────────────────
 # OBTENER DISPONIBLES

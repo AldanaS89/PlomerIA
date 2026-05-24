@@ -8,8 +8,6 @@ from utils.seguridad import create_token, hash_password, verify_password
 from services.disponibilidad_service import guardar_agenda_inicial
 from repositories import plomero_repository
 from schemas.plomero import (
-    PlomeroLoginRequest,
-    PlomeroLoginResponse,
     PlomeroResponse
 )
 
@@ -28,37 +26,6 @@ import secrets
 RADIO_KM = 5.0
 
 
-# ─────────────────────────────
-# LOGIN
-# ─────────────────────────────
-
-def login(
-    db: Session,
-    datos: PlomeroLoginRequest
-) -> PlomeroLoginResponse:
-
-    plomero = plomero_repository.buscar_por_email(
-        db,
-        datos.email
-    )
-
-    if not plomero or not verify_password(
-        datos.password,
-        plomero.password_hash
-    ):
-        raise HTTPException(
-            status_code=401,
-            detail="Email o contraseña incorrectos"
-        )
-
-    token = create_token({"sub": str(plomero.id_plomero), "tipo": "plomero"})
-
-    return PlomeroLoginResponse(
-        access_token = token,
-        token_type   = "bearer",
-        id_plomero   = plomero.id_plomero,
-        nombre       = plomero.nombre,
-    )
 
 
 # ─────────────────────────────
@@ -138,85 +105,6 @@ def registrar_completo(
 
 
 # ─────────────────────────────
-# RESET PASSWORD
-# ─────────────────────────────
-
-def olvide_password(
-    db: Session,
-    email: str
-):
-
-    plomero = plomero_repository.buscar_por_email(
-        db,
-        email
-    )
-
-    if not plomero:
-        return {
-            "mensaje":
-            "Si el email existe, vas a recibir un link para restablecer tu contraseña"
-        }
-
-    token = secrets.token_urlsafe(32)
-
-    plomero_repository.guardar_reset_token(
-        db,
-        plomero.id_plomero,
-        token
-    )
-
-    try:
-        enviar_reset_password(
-            plomero.email,
-            token
-        )
-
-    except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Error al enviar el email: {str(e)}"
-        )
-
-    return {
-        "mensaje":
-        "Si el email existe, vas a recibir un link para restablecer tu contraseña"
-    }
-
-
-def reset_password(
-    db: Session,
-    token: str,
-    nueva_password: str
-):
-
-    plomero = plomero_repository.buscar_por_reset_token(
-        db,
-        token
-    )
-
-    if not plomero:
-        raise HTTPException(
-            status_code=400,
-            detail="Token inválido o ya usado"
-        )
-
-    nuevo_hash = hash_password(
-        nueva_password
-    )
-
-    plomero_repository.actualizar_password(
-        db,
-        plomero.id_plomero,
-        nuevo_hash
-    )
-
-    return {
-        "mensaje":
-        "Contraseña actualizada correctamente"
-    }
-    
-    
-# ─────────────────────────────
 # SUGERIR
 # ─────────────────────────────
 
@@ -258,7 +146,7 @@ def sugerir(
 
     def dist(p):
         if lat_usuario and lon_usuario and p.latitud and p.longitud:
-            return plomero_repository._distancia_km(lat_usuario, lon_usuario, p.latitud, p.longitud)
+            return plomero_repository.distancia_km(lat_usuario, lon_usuario, p.latitud, p.longitud)
         return 9999
 
     def relevancia(p):

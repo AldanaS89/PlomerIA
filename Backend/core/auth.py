@@ -1,39 +1,46 @@
-# core/auth.py
 from fastapi import Depends, HTTPException
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from jose import jwt, JWTError
+
 from config import SECRET_KEY, ALGORITHM
 
 bearer = HTTPBearer()
 
 
-def _verificar_token(credentials: HTTPAuthorizationCredentials, allowed_roles: list[str]) -> dict:
+# ─────────────────────────────
+# DECODE TOKEN
+# ─────────────────────────────
+def decode_token(credentials, allowed_roles):
     token = credentials.credentials
 
-    try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        user_id = payload.get("sub")
-        role = payload.get("tipo")
+    payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
 
-        if not user_id or role not in allowed_roles:
-            raise HTTPException(status_code=403, detail="No autorizado")
+    user_id = payload.get("sub")
+    role = payload.get("tipo")
 
-        return {"id": int(user_id), "role": role}
+    if not user_id or not role:
+        raise HTTPException(401, "Token inválido")
 
-    except JWTError:
-        raise HTTPException(status_code=401, detail="Token inválido o expirado")
+    if role not in allowed_roles:
+        raise HTTPException(403, "No autorizado")
+
+    return {"id": int(user_id), "role": role}
 
 
-class _RoleChecker:
-    def __init__(self, roles: list[str]):
-        self.roles = roles
-
-    def __call__(
-        self,
+# ─────────────────────────────
+# FACTORY DE ROLES
+# ─────────────────────────────
+def require_role(roles: list[str]):
+    def wrapper(
         credentials: HTTPAuthorizationCredentials = Depends(bearer),
     ) -> int:
-        return _verificar_token(credentials, self.roles)["id"]
+        return decode_token(credentials, roles)["id"]
+
+    return wrapper
 
 
-get_usuario_actual = _RoleChecker(["usuario"])
-get_plomero_actual = _RoleChecker(["plomero"])
+# ─────────────────────────────
+# DEPENDENCIES LISTAS
+# ─────────────────────────────
+get_usuario_actual = require_role(["usuario"])
+get_plomero_actual = require_role(["plomero"])

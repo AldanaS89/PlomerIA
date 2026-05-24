@@ -14,7 +14,6 @@ from services import disponibilidad_service
 
 
 router = APIRouter(
-    prefix="/disponibilidad",
     tags=["Disponibilidad"]
 )
 
