@@ -1,17 +1,14 @@
-# schemas/usuario.py
-from pydantic import BaseModel
-from typing import Optional
+from pydantic import BaseModel, ConfigDict
 
 class UsuarioResponse(BaseModel):
     id_usuario: int
-    nombre:     str
-    apellido:   str
-    email:      str
-    telefono:   str
-    direccion:  str
-    localidad:  str # ← Agregado
-    latitud:    float
-    longitud:   float
+    nombre: str
+    apellido: str
+    email: str
+    telefono: str
+    direccion: str
+    localidad: str
+    latitud: float
+    longitud: float
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)

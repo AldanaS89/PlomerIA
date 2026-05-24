@@ -1,26 +1,35 @@
 # repositories/solicitud_repository.py
 from sqlalchemy.orm import Session
-from models.solicitud import Solicitud, EstadoSolicitud
+from models.solicitud import EstadoSolicitud, Solicitud
 from models.plomero import Plomero 
 from schemas.solicitud import SolicitudCreate
-from typing import List, Optional
 
 
-def crear(db: Session, id_usuario: int, datos: SolicitudCreate, diagnostico: dict) -> Solicitud:
+def crear(
+    db: Session,
+    id_usuario: int,
+    datos: SolicitudCreate,
+    diagnostico: dict
+) -> Solicitud:
+
     solicitud = Solicitud(
-        id_usuario             = id_usuario,
-        id_plomero             = datos.id_plomero,
-        descripcion_raw        = datos.descripcion_raw,
-        localidad_evento       = datos.localidad_evento,
-        imagen_path            = datos.imagen_path,
-        video_path             = datos.video_path,
-        estado                 = EstadoSolicitud.PENDIENTE
-    )
+    id_usuario       = id_usuario,
+    descripcion_raw  = datos.descripcion_raw,
+    localidad_evento = datos.localidad_evento,
+    latitud_evento   = datos.latitud_evento,
+    longitud_evento  = datos.longitud_evento,
+    etiqueta_ia      = diagnostico["etiqueta_ia"],
+    urgencia_ia      = diagnostico["urgencia_ia"],
+    presupuesto_min  = diagnostico["presupuesto_min"],
+    presupuesto_max  = diagnostico["presupuesto_max"],
+    estado           = EstadoSolicitud.PENDIENTE
+)
+
     db.add(solicitud)
     db.commit()
     db.refresh(solicitud)
-    return solicitud
 
+    return solicitud
 
 def asignar_plomero(db: Session, id_solicitud: int, id_plomero: int) -> Solicitud | None:
     solicitud = obtener_por_id(db, id_solicitud)
@@ -66,7 +75,7 @@ def listar_por_plomero(db: Session, id_plomero: int) -> list[Solicitud]:
 
     return resultado
 
-def listar_con_nombres(db: Session) -> list:
+def listar_con_nombres(db: Session) -> list[Solicitud]:
     """Trae todas las solicitudes unidas con el nombre del plomero."""
     resultados = db.query(
         Solicitud, 
@@ -87,7 +96,7 @@ def cambiar_estado(db: Session, id: int, nuevo_estado: str) -> Solicitud | None:
     db.refresh(solicitud)
     return solicitud
 
-# solicitud_repository.py — agregar esta función
+
 def guardar_ids_sugeridos(db: Session, id_solicitud: int, ids: list[int]) -> None:
     solicitud = obtener_por_id(db, id_solicitud)
     if solicitud:
@@ -153,3 +162,24 @@ def listar_por_usuario_con_detalle(db: Session, id_usuario: int) -> list[dict]:
         resultado.append(item)
 
     return resultado
+
+def buscar_por_texto(
+    db: Session,
+    q: str
+) -> list[Solicitud]:
+    query = db.query(Solicitud)
+    if q:
+        query = query.filter(Solicitud.descripcion_raw.ilike(f"%{q}%"))
+    return query.order_by(Solicitud.fecha.desc()).all()
+
+def cancelar(
+    db: Session,
+    solicitud: Solicitud
+):
+    solicitud.estado = EstadoSolicitud.RECHAZADO
+    solicitud.ids_plomeros_sugeridos = None
+
+    db.commit()
+    db.refresh(solicitud)
+
+    return solicitud

@@ -1,41 +1,29 @@
-# models/plomero.py — VERSIÓN ACTUALIZADA
-# Cambios:
-# - especialidad (String) → especialidades (JSON list)
-# - + foto_perfil_path (String)
-# - + agenda (JSON dict, opcional — alternativa a tabla bloques)
-from sqlalchemy import JSON, Column, Integer, String, Float, Boolean, DateTime
-from datetime import datetime
+# models/plomero.py
+from sqlalchemy import Column, Integer, String, Float, Boolean, JSON, Enum as SAEnum
 from database import Base
+from models.personaMixin import PersonaMixin
+import enum
 
+class EspecialidadEnum(str, enum.Enum):
+    PLOMERIA_GENERAL = "PLOMERIA_GENERAL"
+    DESTAPES         = "DESTAPES"
+    GAS_MATRICULADO  = "GAS_MATRICULADO"
+    OBRA             = "OBRA"
+    OTRA             = "OTRA"
 
-class Plomero(Base):
+class Plomero(PersonaMixin, Base):
     __tablename__ = "plomeros"
 
-    id_plomero          = Column(Integer, primary_key=True, index=True)
-    nombre              = Column(String)
-    apellido            = Column(String)
-    email               = Column(String, unique=True, index=True, nullable=False)
-    telefono            = Column(String)
-
-    # Lista de especialidades: ["DESTAPES", "GAS_MATRICULADO", ...]
-    especialidades      = Column(JSON)
-    otra_especialidades = Column(String, nullable=True)
-
-    genero              = Column(String)
-    localidad           = Column(String)
-    latitud             = Column(Float)
-    longitud            = Column(Float)
-    atiende_urgencias   = Column(Boolean, default=False)
-    disponible_ahora    = Column(Boolean, default=True)
-    puntuacion          = Column(Float, default=0.0)
-    total_trabajos      = Column(Integer, default=0)
-    matricula_gas       = Column(Boolean, default=False)
-    password_hash       = Column(String)
-    fecha_registro      = Column(DateTime, default=datetime.utcnow)
-    reset_token         = Column(String, nullable=True)
-
-    # Foto de perfil — ruta al archivo guardado en el servidor
-    foto_perfil_path    = Column(String, nullable=True)
-
-    # Agenda semanal: {"Lun_manana": true, "Lun_tarde": false, ...}
-    agenda              = Column(JSON, nullable=True)
+    id_plomero        = Column(Integer, primary_key=True, index=True)
+    especialidad      = Column(SAEnum(EspecialidadEnum), nullable=False)  # valor principal para filtrar
+    especialidades    = Column(JSON, nullable=True)   # lista para mostrar en el perfil
+    otra_especialidad = Column(String, nullable=True) # solo si eligió OTRA
+    genero            = Column(String)
+    atiende_urgencias = Column(Boolean, default=False)
+    disponible_ahora  = Column(Boolean, default=True)
+    puntuacion        = Column(Float,   default=0.0)
+    total_trabajos    = Column(Integer, default=0)
+    matricula_gas     = Column(Boolean, default=False)
+    foto_perfil_path  = Column(String, nullable=True)
+    agenda            = Column(JSON,    nullable=True)
+    rol               = Column(String,  default="plomero")

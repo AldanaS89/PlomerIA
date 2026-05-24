@@ -22,9 +22,10 @@ sys.path.insert(0, str(BACKEND_DIR))
 os.chdir(BACKEND_DIR)  # necesario para que SQLite encuentre la base de datos
 
 # ─── Imports del proyecto ─────────────────────────────────────────────────────
+from utils.seguridad import hash_password
 from database import SessionLocal, engine, Base
 from models.plomero import Plomero
-from services.auth_service import hashear_password
+
 
 # ─── Crear tablas si no existen ───────────────────────────────────────────────
 Base.metadata.create_all(bind=engine)
@@ -51,7 +52,7 @@ errores  = 0
 
 try:
     for datos in plomeros_data:
-        # Saltar si el email ya existe
+
         existe = db.query(Plomero).filter(Plomero.email == datos["email"]).first()
         if existe:
             saltados += 1
@@ -59,33 +60,39 @@ try:
 
         try:
             plomero = Plomero(
-                nombre            = datos["nombre"],
-                apellido          = datos["apellido"],
-                email             = datos["email"],
-                password_hash     = hashear_password(datos["password"]),
-                telefono          = datos["telefono"],
-                localidad         = datos["localidad"],
-                latitud           = datos.get("latitud"),
-                longitud          = datos.get("longitud"),
-                especialidades    = datos["especialidades"],
-                genero            = datos["genero"],
-                atiende_urgencias = datos["atiende_urgencias"],
-                matricula_gas     = datos.get("matricula_gas", False),
-                puntuacion        = datos["puntuacion"],
-                total_trabajos    = datos["total_trabajos"],
-                disponible_ahora  = datos["disponible_ahora"],
-                agenda            = datos.get("agenda", {}),
-                foto_perfil_path  = datos.get("foto_perfil_path"),
+                nombre=datos["nombre"],
+                apellido=datos["apellido"],
+                email=datos["email"],
+                password_hash=hash_password(datos["password"]),
+                telefono=datos["telefono"],
+                localidad=datos["localidad"],
+                latitud=datos.get("latitud"),
+                longitud=datos.get("longitud"),
+                especialidades=datos["especialidades"],
+                genero=datos["genero"],
+                atiende_urgencias=datos["atiende_urgencias"],
+                matricula_gas=datos.get("matricula_gas", False),
+                puntuacion=datos["puntuacion"],
+                total_trabajos=datos["total_trabajos"],
+                disponible_ahora=datos["disponible_ahora"],
+                agenda=datos.get("agenda", {}),
+                foto_perfil_path=datos.get("foto_perfil_path"),
             )
+
             db.add(plomero)
-            db.commit()
             cargados += 1
             print(f"  ✓ {datos['nombre']} {datos['apellido']} — {datos['localidad']}")
 
         except Exception as e:
-            db.rollback()
             errores += 1
             print(f"  ✗ Error con {datos.get('email', '?')}: {e}")
+
+    # 👇 commit SOLO UNA VEZ
+    db.commit()
+
+except Exception as e:
+    db.rollback()
+    print("❌ Error general:", e)
 
 finally:
     db.close()

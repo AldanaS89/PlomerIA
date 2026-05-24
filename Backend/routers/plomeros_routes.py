@@ -15,7 +15,7 @@ from schemas.plomero import (
     OlvidePasswordPlomeroRequest, ResetPasswordPlomeroRequest,
 )
 from services import plomero_service
-from utils.auth_plomeros import get_plomero_actual
+from core.auth import get_plomero_actual
 
 router = APIRouter(tags=["Plomeros"])
 
@@ -110,7 +110,7 @@ async def registrar(
     atiende_urgencias:   bool           = Form(False),
     matricula_gas:       bool           = Form(False),
     agenda:              str            = Form("{}"),  # JSON: '{"Lun_manana":true}'
-    otra_especialidades: Optional[str]  = Form(None),
+    otra_especialidad: Optional[str]  = Form(None),
     foto:                Optional[UploadFile] = File(None),
     db: Session = Depends(get_db),
 ):
@@ -123,6 +123,8 @@ async def registrar(
     # Parsear agenda
     try:
         agenda_dict = json.loads(agenda)
+        if not isinstance(agenda_dict, dict):
+            agenda_dict = {}
     except Exception:
         agenda_dict = {}
 
@@ -141,7 +143,7 @@ async def registrar(
         direccion           = direccion,
         localidad           = localidad,
         especialidades      = lista_esp,
-        otra_especialidades = otra_especialidades,
+        otra_especialidad = otra_especialidad,
         genero              = genero,
         atiende_urgencias   = atiende_urgencias,
         matricula_gas       = matricula_gas,
@@ -171,149 +173,15 @@ def buscar(
 
 
 @router.post("/sugerir")
-def sugerir(
-    datos: dict,
-    db: Session = Depends(get_db),
-):
-    from services import ia_service
-    from repositories import plomero_repository
-    from datetime import datetime
-
-    descripcion      = datos.get("descripcion", "")
-    solo_mujeres     = datos.get("solo_mujeres", False)
-    lat_usuario      = datos.get("latitud",  None)
-    lon_usuario      = datos.get("longitud", None)
-    urgencia_forzada = datos.get("urgencia_forzada", False)
-
-    diagnostico = ia_service.analizar_descripcion(descripcion)
-    etiqueta    = diagnostico["etiqueta_ia"]
-    urgencia_ia = diagnostico["urgencia_ia"]
-
-    es_urgente = urgencia_forzada or (urgencia_ia == "URGENTE")
-    genero_filtro = "F" if solo_mujeres else None
-
-    # ── Franjas válidas para urgencias: hoy (lo que queda) + mañana ──────────
-    DIAS_ES  = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"]
-    FRANJAS  = ["manana", "tarde", "noche"]
-    FRANJA_INICIO = {"manana": 8, "tarde": 13, "noche": 18}
-
-    ahora       = datetime.now()
-    hora_actual = ahora.hour
-    dia_hoy     = DIAS_ES[ahora.weekday()]
-    dia_manana  = DIAS_ES[(ahora.weekday() + 1) % 7]
-
-    # Franjas de hoy que todavía tienen más de 1 hora por delante
-    franjas_hoy = [f for f in FRANJAS if FRANJA_INICIO[f] > hora_actual + 1]
-    # Mañana: mañana y tarde (no noche para urgencias)
-    franjas_manana = ["manana", "tarde"]
-
-    keys_urgencia = (
-        {f"{dia_hoy}_{f}" for f in franjas_hoy} |
-        {f"{dia_manana}_{f}" for f in franjas_manana}
+def sugerir(datos: dict, db: Session = Depends(get_db)):
+    return plomero_service.sugerir(
+        db               = db,
+        descripcion      = datos.get("descripcion", ""),
+        solo_mujeres     = datos.get("solo_mujeres", False),
+        lat_usuario      = datos.get("latitud"),
+        lon_usuario      = datos.get("longitud"),
+        urgencia_forzada = datos.get("urgencia_forzada", False),
     )
-
-    def tiene_slot_urgente(p) -> bool:
-        if not p.agenda:
-            return p.disponible_ahora
-        return any(p.agenda.get(k) for k in keys_urgencia)
-
-    # ── Query con radio progresivo para urgencias ─────────────────────────────
-    if es_urgente:
-        # Intentar con radios crecientes hasta tener 5 resultados
-        RADIOS = [5, 10, 20, 50, None]  # None = sin límite de distancia
-        plomeros = []
-        for radio in RADIOS:
-            candidatos = plomero_repository.filtrar(
-                db,
-                genero            = genero_filtro,
-                atiende_urgencias = True,
-                solo_disponibles  = True,
-                lat_usuario       = lat_usuario if radio else None,
-                lon_usuario       = lon_usuario if radio else None,
-                radio_km          = radio,
-            )
-            candidatos = [p for p in candidatos if tiene_slot_urgente(p)]
-            if len(candidatos) >= 5:
-                plomeros = candidatos
-                break
-            plomeros = candidatos  # guardar los que hay aunque sean menos
-
-        # Fallback final: cualquier disponible con slot urgente
-        if len(plomeros) < 5:
-            ids_ya = {p.id_plomero for p in plomeros}
-            resto = plomero_repository.filtrar(
-                db,
-                genero           = genero_filtro,
-                solo_disponibles = True,
-            )
-            for p in resto:
-                if p.id_plomero not in ids_ya and tiene_slot_urgente(p):
-                    plomeros.append(p)
-                    ids_ya.add(p.id_plomero)
-    else:
-        plomeros = plomero_repository.filtrar(
-            db,
-            genero      = genero_filtro,
-            lat_usuario = lat_usuario,
-            lon_usuario = lon_usuario,
-        )
-
-    # ── Distancia ─────────────────────────────────────────────────────────────
-    def _dist(p):
-        if lat_usuario and lon_usuario and p.latitud and p.longitud:
-            return plomero_repository._distancia_km(
-                lat_usuario, lon_usuario, p.latitud, p.longitud
-            )
-        return 9999
-
-    # ── Relevancia ────────────────────────────────────────────────────────────
-    def _relevancia(p):
-        score = 0
-        if etiqueta and p.especialidades and etiqueta in p.especialidades:
-            score += 3
-        if es_urgente and p.atiende_urgencias and p.disponible_ahora:
-            score += 5
-        return score
-
-    # ── Deduplicar ────────────────────────────────────────────────────────────
-    vistos, unicos = set(), []
-    for p in plomeros:
-        if p.id_plomero not in vistos:
-            vistos.add(p.id_plomero)
-            unicos.append(p)
-
-    resultado = sorted(
-        unicos,
-        key=lambda p: (-_relevancia(p), -p.puntuacion, _dist(p))
-    )[:5]
-
-    # Para urgencias: filtrar la agenda mostrando solo hoy y mañana
-    def agenda_filtrada(p):
-        if not es_urgente or not p.agenda:
-            return p.agenda or {}
-        return {k: True for k in keys_urgencia if p.agenda.get(k)}
-
-    return [
-        {
-            "id_plomero":        p.id_plomero,
-            "nombre":            p.nombre,
-            "apellido":          p.apellido,
-            "foto_perfil_path":  p.foto_perfil_path,
-            "especialidad":      (p.especialidades or [etiqueta])[0],
-            "especialidades":    p.especialidades or [],
-            "localidad":         p.localidad,
-            "puntuacion":        p.puntuacion,
-            "total_trabajos":    p.total_trabajos,
-            "atiende_urgencias": p.atiende_urgencias,
-            "disponible_ahora":  p.disponible_ahora,
-            "genero":            p.genero,
-            "distancia_km":      round(_dist(p), 2) if _dist(p) < 9999 else None,
-            "etiqueta_ia":       etiqueta,
-            "urgencia_ia":       urgencia_ia,
-            "agenda":            agenda_filtrada(p),
-        }
-        for p in resultado
-    ]
 
 
 # ── DISPONIBILIDAD ────────────────────────────────────────────────────────────

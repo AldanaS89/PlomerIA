@@ -3,7 +3,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
-from utils.auth_plomeros import get_usuario_actual
+from core.auth import get_usuario_actual
 from database import get_db
 from services import calificacion_service
 

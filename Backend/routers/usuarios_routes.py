@@ -1,57 +1,51 @@
-# routers/usuarios_routes.py
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
 from database import get_db
-from schemas.auth import (
-    RegistroRequest, LoginRequest, LoginResponse,
-    OlvidePasswordRequest, ResetPasswordRequest,
-)
+from core.auth import get_usuario_actual
+from services import usuarios_service
+from schemas.auth import *
 from schemas.usuario import UsuarioResponse
-from services import auth_service
-from repositories import usuario_repository
-from utils.auth_plomeros import get_usuario_actual
 
 router = APIRouter(prefix="/usuarios", tags=["Usuarios"])
 
-# ── Auth ──────────────────────────────────────────────────────────────────────
+
+# ── AUTH ─────────────────────────────
 
 @router.post("/registro")
 def registrar(datos: RegistroRequest, db: Session = Depends(get_db)):
-    return auth_service.registrar(db, datos)
+    return usuarios_service.registrar(db, datos)
 
 
 @router.post("/login", response_model=LoginResponse)
 def login(datos: LoginRequest, db: Session = Depends(get_db)):
-    return auth_service.login(db, datos)
+    return usuarios_service.login(db, datos)
 
 
 @router.post("/olvide-password")
 def olvide_password(datos: OlvidePasswordRequest, db: Session = Depends(get_db)):
-    return auth_service.olvide_password(db, datos.email)
+    return usuarios_service.olvide_password(db, datos.email)
 
 
 @router.post("/reset-password")
 def reset_password(datos: ResetPasswordRequest, db: Session = Depends(get_db)):
-    return auth_service.reset_password(db, datos.token, datos.nueva_password)
+    return usuarios_service.reset_password(db, datos.token, datos.nueva_password)
 
 
-# ── Perfil ────────────────────────────────────────────────────────────────────
+# ── PERFIL ─────────────────────────────
 
-@router.get("/perfil", response_model=UsuarioResponse)
+@router.get("/me", response_model=UsuarioResponse)
 def perfil(
-    db:         Session = Depends(get_db),
-    id_usuario: int     = Depends(get_usuario_actual),
+    db: Session = Depends(get_db),
+    id_usuario: int = Depends(get_usuario_actual),
 ):
-    usuario = usuario_repository.buscar_por_id(db, id_usuario)
-    if not usuario:
-        raise HTTPException(status_code=404, detail="Usuario no encontrado")
-    return UsuarioResponse.model_validate(usuario)
+    return usuarios_service.obtener_perfil(db, id_usuario)
 
 
 @router.get("/{id}", response_model=UsuarioResponse)
-def obtener(id: int, db: Session = Depends(get_db)):
-    usuario = usuario_repository.buscar_por_id(db, id)
-    if not usuario:
-        raise HTTPException(status_code=404, detail="Usuario no encontrado")
-    return UsuarioResponse.model_validate(usuario)
+def obtener(
+    id: int,
+    db: Session = Depends(get_db),
+    _: int = Depends(get_usuario_actual),  # protección base
+):
+    return usuarios_service.obtener_perfil(db, id)

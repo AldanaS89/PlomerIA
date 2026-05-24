@@ -1,5 +1,6 @@
 from sqlalchemy.orm import Session
-from models import Calificacion, Plomero
+from models.plomero import  Plomero
+from models.calificacion import Calificacion
 
 def crear_calificacion(db: Session, calificacion_data: dict):
     nueva_redenia = Calificacion(**calificacion_data)

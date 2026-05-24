@@ -1,13 +1,15 @@
 import sys
 import os
 
+from routers import disponibilidad_router
+
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 from fastapi.staticfiles import StaticFiles
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from database import engine, Base
-from routers import usuarios_routes, plomeros_routes, solicitudes, disponibilidad, calificaciones_routes
+from routers import usuarios_routes, plomeros_routes, solicitudes, calificaciones_routes
 
 app = FastAPI(title="PlomerIA - Zona Sur", redirect_slashes=False)
 
@@ -35,7 +37,7 @@ app.include_router(plomeros_routes.router, prefix=API_PREFIX + "/plomeros")
 app.include_router(solicitudes.router, prefix=API_PREFIX)
 
 # NO tiene prefix adentro → /api/disponibilidad
-app.include_router(disponibilidad.router, prefix=API_PREFIX + "/disponibilidad")
+app.include_router(disponibilidad_router.router, prefix=API_PREFIX + "/disponibilidad")
 
 # tiene prefix="/calificaciones" adentro → solo /api
 app.include_router(calificaciones_routes.router, prefix=API_PREFIX)

@@ -12,7 +12,7 @@ from typing import TypedDict
 from config import GEMINI_API_KEY
 
 ESPECIALIDADES = ["PLOMERIA_GENERAL", "DESTAPES", "GAS_MATRICULADO", "OBRA"]
-URGENCIAS = ["BAJA", "NORMAL", "URGENTE"]
+URGENCIAS = ["NORMAL", "URGENTE","EMERGENCIA"]
 
 
 class DiagnosticoIA(TypedDict):
@@ -92,11 +92,13 @@ def analizar_descripcion(descripcion: str) -> DiagnosticoIA:
         return _fallback(descripcion)
 
     try:
-        import google.generativeai as genai
+        from google import genai
 
-        genai.configure(api_key=GEMINI_API_KEY)
-        model = genai.GenerativeModel("gemini-flash-latest")
-        respuesta = model.generate_content(_PROMPT.format(descripcion=descripcion))
+        client = genai.Client(api_key=GEMINI_API_KEY)
+        respuesta = client.models.generate_content(
+            model="gemini-2.0-flash",
+            contents=_PROMPT.format(descripcion=descripcion),
+        )
         data = _parse_json(respuesta.text or "")
         if not data:
             return _fallback(descripcion)
