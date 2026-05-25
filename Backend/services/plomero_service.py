@@ -26,8 +26,6 @@ import secrets
 RADIO_KM = 5.0
 
 
-
-
 # ─────────────────────────────
 # REGISTRO
 # ─────────────────────────────
@@ -103,6 +101,23 @@ def registrar_completo(
         "nombre":       plomero.nombre,
     }
 
+def obtener_mi_perfil(
+    db: Session,
+    id_plomero: int
+) -> PlomeroResponse:
+
+    plomero = plomero_repository.buscar_por_id(
+        db,
+        id_plomero
+    )
+
+    if not plomero:
+        raise HTTPException(
+            status_code=404,
+            detail="Plomero no encontrado"
+        )
+
+    return PlomeroResponse.model_validate(plomero)
 
 # ─────────────────────────────
 # SUGERIR

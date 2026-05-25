@@ -31,15 +31,14 @@ def crear(
 
     return solicitud
 
-def asignar_plomero(db: Session, id_solicitud: int, id_plomero: int) -> Solicitud | None:
+def asignar_plomero(db: Session, id_solicitud: int, id_plomero: int | None) -> Solicitud | None:
     solicitud = obtener_por_id(db, id_solicitud)
     if not solicitud:
         return None
-    solicitud.id_plomero = id_plomero
+    solicitud.id_plomero = id_plomero  # None para desasignar
     db.commit()
     db.refresh(solicitud)
     return solicitud
-
 
 def obtener_por_id(db: Session, id: int) -> Solicitud | None:
     return db.query(Solicitud).filter(Solicitud.id_solicitud == id).first()
@@ -182,3 +181,24 @@ def cancelar(
     db.refresh(solicitud)
 
     return solicitud
+
+#Si un plomero rechaza el trabajo, lo elimina de los sugeridos
+def remover_plomero_sugerido(
+    db,
+    solicitud,
+    id_plomero
+):
+    if not solicitud.ids_plomeros_sugeridos:
+        return
+
+    ids = [
+        i.strip()
+        for i in solicitud.ids_plomeros_sugeridos.split(",")
+        if i.strip()
+    ]
+
+    ids = [i for i in ids if i != str(id_plomero)]
+
+    solicitud.ids_plomeros_sugeridos = ",".join(ids)
+
+    db.commit()

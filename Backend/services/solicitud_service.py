@@ -148,106 +148,191 @@ def listar_por_plomero(db: Session, id_plomero: int):
 # ACEPTAR — CHAT SE ABRE ACÁ
 # ─────────────────────────────────────────────
 
+# def aceptar(db: Session, id_solicitud: int, id_plomero: int):
+
+#     solicitud = solicitud_repository.obtener_por_id(db, id_solicitud)
+
+#     if not solicitud:
+#         raise HTTPException(status_code=404, detail="No encontrada")
+
+#     if solicitud.id_plomero and solicitud.id_plomero != id_plomero:
+#         raise HTTPException(
+#             status_code=400,
+#             detail="Ya tomada por otro plomero"
+#         )
+
+#     solicitud_repository.asignar_plomero(db, id_solicitud, id_plomero)
+#     solicitud = solicitud_repository.cambiar_estado(
+#         db, id_solicitud, EstadoSolicitud.EN_PROGRESO
+#     )
+
+#     _marcar_bloque_ocupado(db, id_plomero, solicitud.fecha)
+
+#     return _to_response(solicitud)
+
+
+# # ─────────────────────────────────────────────
+# # RECHAZAR
+# # ─────────────────────────────────────────────
+
+# def rechazar(db: Session, id_solicitud: int, id_plomero: int):
+
+#     solicitud = solicitud_repository.obtener_por_id(db, id_solicitud)
+
+#     if not solicitud:
+#         raise HTTPException(status_code=404, detail="No encontrada")
+
+#     if solicitud.id_plomero != id_plomero:
+#         raise HTTPException(status_code=403, detail="No autorizado")
+
+#     solicitud = solicitud_repository.cambiar_estado(
+#         db, id_solicitud, EstadoSolicitud.CANCELADA
+#     )
+
+#     return _to_response(solicitud)
+
+
+# # ─────────────────────────────────────────────
+# # COMPLETAR — CHAT SE CIERRA, ESPERA CALIFICACIÓN
+# # ─────────────────────────────────────────────
+
+# def completar(db: Session, id_solicitud: int, id_plomero: int):
+
+#     solicitud = solicitud_repository.obtener_por_id(db, id_solicitud)
+
+#     if not solicitud:
+#         raise HTTPException(status_code=404, detail="No encontrada")
+
+#     if solicitud.id_plomero != id_plomero:
+#         raise HTTPException(status_code=403, detail="No autorizado")
+
+#     if solicitud.estado != EstadoSolicitud.EN_PROGRESO:
+#         raise HTTPException(
+#             status_code=400,
+#             detail="No está en progreso"
+#         )
+
+#     solicitud = solicitud_repository.cambiar_estado(
+#         db, id_solicitud, EstadoSolicitud.PENDIENTE_CALIFICACION
+#     )
+
+#     return _to_response(solicitud)
+
+# # ─────────────────────────────────────────────
+# # CANCELAR — CLIENTE
+# # ─────────────────────────────────────────────
+
+# def cancelar(db: Session, id_solicitud: int, id_usuario: int):
+
+#     solicitud = solicitud_repository.obtener_por_id(db, id_solicitud)
+
+#     if not solicitud:
+#         raise HTTPException(status_code=404, detail="No encontrada")
+
+#     if solicitud.id_usuario != id_usuario:
+#         raise HTTPException(status_code=403, detail="Sin acceso")
+
+#     if solicitud.estado == EstadoSolicitud.EN_PROGRESO:
+#         raise HTTPException(
+#             status_code=400,
+#             detail="No se puede cancelar un trabajo en progreso"
+#         )
+
+#     solicitud = solicitud_repository.cambiar_estado(
+#         db, id_solicitud, EstadoSolicitud.CANCELADA
+#     )
+
+#     return {
+#         "mensaje": "Solicitud cancelada",
+#         "estado":  solicitud.estado.value
+#     }
+
 def aceptar(db: Session, id_solicitud: int, id_plomero: int):
-
     solicitud = solicitud_repository.obtener_por_id(db, id_solicitud)
-
     if not solicitud:
         raise HTTPException(status_code=404, detail="No encontrada")
-
-    if solicitud.id_plomero and solicitud.id_plomero != id_plomero:
-        raise HTTPException(
-            status_code=400,
-            detail="Ya tomada por otro plomero"
-        )
+    if solicitud.estado != EstadoSolicitud.PENDIENTE:
+        raise HTTPException(status_code=400, detail="La solicitud ya no está disponible")
 
     solicitud_repository.asignar_plomero(db, id_solicitud, id_plomero)
-    solicitud = solicitud_repository.cambiar_estado(
-        db, id_solicitud, EstadoSolicitud.EN_PROGRESO
-    )
-
     _marcar_bloque_ocupado(db, id_plomero, solicitud.fecha)
 
-    return _to_response(solicitud)
-
-
-# ─────────────────────────────────────────────
-# RECHAZAR
-# ─────────────────────────────────────────────
-
-def rechazar(db: Session, id_solicitud: int, id_plomero: int):
-
-    solicitud = solicitud_repository.obtener_por_id(db, id_solicitud)
-
-    if not solicitud:
-        raise HTTPException(status_code=404, detail="No encontrada")
-
-    if solicitud.id_plomero != id_plomero:
-        raise HTTPException(status_code=403, detail="No autorizado")
-
-    solicitud = solicitud_repository.cambiar_estado(
-        db, id_solicitud, EstadoSolicitud.CANCELADA
+    # Directo a EN_PROGRESO — saltea ASIGNADA
+    return _to_response(
+        solicitud_repository.cambiar_estado(db, id_solicitud, EstadoSolicitud.EN_PROGRESO)
     )
 
-    return _to_response(solicitud)
+def rechazar(
+    db: Session,
+    id_solicitud: int,
+    id_plomero: int
+):
 
-
-# ─────────────────────────────────────────────
-# COMPLETAR — CHAT SE CIERRA, ESPERA CALIFICACIÓN
-# ─────────────────────────────────────────────
-
-def completar(db: Session, id_solicitud: int, id_plomero: int):
-
-    solicitud = solicitud_repository.obtener_por_id(db, id_solicitud)
+    solicitud = solicitud_repository.obtener_por_id(
+        db,
+        id_solicitud
+    )
 
     if not solicitud:
-        raise HTTPException(status_code=404, detail="No encontrada")
+        raise HTTPException(
+            status_code=404,
+            detail="No encontrada"
+        )
 
     if solicitud.id_plomero != id_plomero:
-        raise HTTPException(status_code=403, detail="No autorizado")
+        raise HTTPException(
+            status_code=403,
+            detail="No autorizado"
+        )
 
     if solicitud.estado != EstadoSolicitud.EN_PROGRESO:
         raise HTTPException(
             status_code=400,
-            detail="No está en progreso"
+            detail="La solicitud no está en progreso"
         )
 
+    # liberar plomero
+    solicitud_repository.asignar_plomero(
+        db,
+        id_solicitud,
+        None
+    )
+
+    # volver disponible
     solicitud = solicitud_repository.cambiar_estado(
-        db, id_solicitud, EstadoSolicitud.PENDIENTE_CALIFICACION
+        db,
+        id_solicitud,
+        EstadoSolicitud.PENDIENTE
     )
 
     return _to_response(solicitud)
 
-# ─────────────────────────────────────────────
-# CANCELAR — CLIENTE
-# ─────────────────────────────────────────────
-
-def cancelar(db: Session, id_solicitud: int, id_usuario: int):
-
+def completar(db: Session, id_solicitud: int, id_plomero: int):
     solicitud = solicitud_repository.obtener_por_id(db, id_solicitud)
-
     if not solicitud:
         raise HTTPException(status_code=404, detail="No encontrada")
-
-    if solicitud.id_usuario != id_usuario:
-        raise HTTPException(status_code=403, detail="Sin acceso")
-
-    if solicitud.estado == EstadoSolicitud.EN_PROGRESO:
-        raise HTTPException(
-            status_code=400,
-            detail="No se puede cancelar un trabajo en progreso"
+    if solicitud.id_plomero != id_plomero:
+        raise HTTPException(status_code=403, detail="No autorizado")
+    if solicitud.estado != EstadoSolicitud.EN_PROGRESO:
+        raise HTTPException(status_code=400, detail="No está en progreso")
+    return _to_response(
+        solicitud_repository.cambiar_estado(
+            db, id_solicitud, EstadoSolicitud.PENDIENTE_CALIFICACION
         )
-
-    solicitud = solicitud_repository.cambiar_estado(
-        db, id_solicitud, EstadoSolicitud.CANCELADA
     )
 
-    return {
-        "mensaje": "Solicitud cancelada",
-        "estado":  solicitud.estado.value
-    }
-
-
+def cancelar(db: Session, id_solicitud: int, id_usuario: int):
+    solicitud = solicitud_repository.obtener_por_id(db, id_solicitud)
+    if not solicitud:
+        raise HTTPException(status_code=404, detail="No encontrada")
+    if solicitud.id_usuario != id_usuario:
+        raise HTTPException(status_code=403, detail="Sin acceso")
+    if solicitud.estado == EstadoSolicitud.EN_PROGRESO:
+        raise HTTPException(status_code=400, detail="No se puede cancelar un trabajo en progreso")
+    solicitud_repository.asignar_plomero(db, id_solicitud, None)
+    return _to_response(
+        solicitud_repository.cambiar_estado(db, id_solicitud, EstadoSolicitud.CANCELADA)
+    )
 # ─────────────────────────────────────────────
 # BUSCAR
 # ─────────────────────────────────────────────

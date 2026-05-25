@@ -43,7 +43,7 @@ def mis_solicitudes(
     db: Session = Depends(get_db),
     id_usuario: int = Depends(get_usuario_actual),
 ):
-    return solicitud_service.listar_por_usuario_con_detalle_s(
+    return solicitud_service.listar_por_usuario(
         db,
         id_usuario
     )
@@ -69,7 +69,7 @@ def mis_solicitudes_plomero(
     db: Session = Depends(get_db),
     id_plomero: int = Depends(get_plomero_actual),
 ):
-    return solicitud_service.listar_por_plomero_s(
+    return solicitud_service.listar_por_plomero(
         db,
         id_plomero
     )
@@ -115,7 +115,7 @@ def cancelar_solicitud(
     db: Session = Depends(get_db),
     id_usuario: int = Depends(get_usuario_actual),
 ):
-    return solicitud_service.cancelar_solicitud(
+    return solicitud_service.cancelar(
         db,
         id_solicitud,
         id_usuario

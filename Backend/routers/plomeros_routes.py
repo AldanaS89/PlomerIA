@@ -4,9 +4,10 @@ import numpy as np
 
 from typing import Optional
 
-from fastapi import APIRouter, Depends, UploadFile, File, Form
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from sqlalchemy.orm import Session
 
+from Backend.repositories import plomero_repository
 from services import foto_service
 from database import get_db
 from schemas.plomero import PlomeroResponse
@@ -68,6 +69,20 @@ async def registrar(
         foto_path         = foto_path,
     )
 
+# ─────────────────────────────
+# PERFIL DEL PLOMERO LOGUEADO
+# ─────────────────────────────
+
+@router.get("/me", response_model=PlomeroResponse)
+def obtener_mi_perfil(
+    db: Session = Depends(get_db),
+    id_plomero: int = Depends(get_plomero_actual)
+):
+
+    return plomero_service.obtener_mi_perfil(
+        db,
+        id_plomero
+    )
 
 # ── BUSCAR / SUGERIR ──────────────────────────────────────────────────────────
 
