@@ -5,14 +5,15 @@ from datetime import datetime
 from database import Base
 import enum
 
-# ── ESTADOS POSIBLES ─────────────────────────────────────────────────────────
-# Esto define las fases de la solicitud para el flujo de "quien acepta primero gana"
+
 class EstadoSolicitud(enum.Enum):
-    PENDIENTE = "pendiente"        # creada, sin asignar
-    ASIGNADA = "asignada"          # ya tiene plomero
-    EN_PROGRESO = "en_progreso"    # plomero aceptó y está trabajando
-    COMPLETADA = "completada"
-    CANCELADA = "cancelada"
+    PENDIENTE              = "pendiente"
+    ASIGNADA               = "asignada"
+    EN_PROGRESO            = "en_progreso"
+    PENDIENTE_CALIFICACION = "pendiente_calificacion"  # trabajo terminado, esperando calificación
+    COMPLETADA             = "completada"              # calificado — flujo cerrado
+    CANCELADA              = "cancelada"
+
 
 class Solicitud(Base):
     __tablename__ = "solicitudes"
@@ -21,7 +22,7 @@ class Solicitud(Base):
 
     # ── RELACIONES ────────────────────────────────────────────────────────────
     id_usuario      = Column(Integer, ForeignKey("usuarios.id_usuario"), nullable=False)
-    id_plomero      = Column(Integer, ForeignKey("plomeros.id_plomero"), nullable=True) # Se llena cuando alguien acepta
+    id_plomero      = Column(Integer, ForeignKey("plomeros.id_plomero"), nullable=True)
 
     # ── DATOS DEL PROBLEMA ───────────────────────────────────────────────────
     descripcion_raw = Column(String, nullable=False)
@@ -29,23 +30,25 @@ class Solicitud(Base):
     video_path      = Column(String, nullable=True)
 
     # ── DIAGNÓSTICO IA ───────────────────────────────────────────────────────
-    etiqueta_ia     = Column(String, nullable=True)   # Clasificación (ej: "Gasista")
-    urgencia_ia     = Column(String, nullable=True)   # Nivel de prioridad
+    etiqueta_ia     = Column(String, nullable=True)
+    urgencia_ia     = Column(String, nullable=True)
     presupuesto_min = Column(Float,  nullable=True)
     presupuesto_max = Column(Float,  nullable=True)
 
-    # ── NUEVOS CAMPOS PARA EL FLUJO ──────────────────────────────────────────
-    # Guardamos los IDs de los 5 mejores candidatos para que el sistema sepa a quién notificar
-    ids_plomeros_sugeridos = Column(String, nullable=True) # Ejemplo: "12, 45, 7, 23, 9"
-    
-    # Ubicación del evento (Fundamental para Geopy y cercanía)
-    localidad_evento = Column(String, nullable=False) 
-    latitud_evento   = Column(Float,  nullable=True) # Coordenada Y
-    longitud_evento  = Column(Float,  nullable=True) # Coordenada X
+    # ── PLOMEROS SUGERIDOS ───────────────────────────────────────────────────
+    ids_plomeros_sugeridos = Column(String, nullable=True)
+
+    # ── UBICACIÓN ────────────────────────────────────────────────────────────
+    localidad_evento = Column(String, nullable=False)
+    latitud_evento   = Column(Float,  nullable=True)
+    longitud_evento  = Column(Float,  nullable=True)
 
     # ── ESTADO Y FECHA ───────────────────────────────────────────────────────
-    estado          = Column(Enum(EstadoSolicitud), default=EstadoSolicitud.PENDIENTE)
-    fecha           = Column(DateTime, default=datetime.now)
+    estado = Column(
+        Enum(EstadoSolicitud),
+        default=EstadoSolicitud.PENDIENTE
+    )
+    fecha  = Column(DateTime, default=datetime.now)
 
     # ── RELACIONES ORM ────────────────────────────────────────────────────────
     usuario = relationship("Usuario", foreign_keys=[id_usuario])

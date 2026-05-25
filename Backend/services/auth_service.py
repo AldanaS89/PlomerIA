@@ -18,16 +18,16 @@ def login(db: Session, email: str, password: str):
     if user and verify_password(password, user.password_hash):
 
         token = create_token({
-            "sub": str(user.id_usuario),
-            "role": "usuario"
+            "sub":  str(user.id_usuario),
+            "tipo": "usuario"
         })
 
         return {
             "access_token": token,
-            "token_type": "bearer",
-            "id": user.id_usuario,
-            "nombre": user.nombre,
-            "role": "usuario"
+            "token_type":   "bearer",
+            "id":           user.id_usuario,
+            "nombre":       user.nombre,
+            "tipo":         "usuario"
         }
 
     # ─────────────────────────────
@@ -38,19 +38,21 @@ def login(db: Session, email: str, password: str):
     if plomero and verify_password(password, plomero.password_hash):
 
         token = create_token({
-            "sub": str(plomero.id_plomero),
-            "role": "plomero"
+            "sub":  str(plomero.id_plomero),
+            "tipo": "plomero"
         })
 
         return {
-            "access_token": token,
-            "token_type": "bearer",
-            "id": plomero.id_plomero,
-            "nombre": plomero.nombre,
-            "role": "plomero"
+            "access_token":   token,
+            "token_type":     "bearer",
+            "id":             plomero.id_plomero,
+            "nombre":         plomero.nombre,
+            "tipo":           "plomero",
+            "disponible_ahora": plomero.disponible_ahora
         }
 
     raise HTTPException(status_code=401, detail="Credenciales inválidas")
+
 
 # ─────────────────────────────
 # FORGOT PASSWORD (UNIFICADO)
@@ -65,14 +67,10 @@ def forgot_password(db: Session, email: str):
         role = "plomero"
 
     if not user:
-        # respuesta segura (no revelar existencia)
-        return {
-            "message": "Si el email existe, recibirás instrucciones"
-        }
+        return {"message": "Si el email existe, recibirás instrucciones"}
 
     token = secrets.token_urlsafe(32)
 
-    # guardar token según tipo
     if role == "usuario":
         usuario_repository.guardar_reset_token(db, user.id_usuario, token)
         email_to = user.email
@@ -85,9 +83,7 @@ def forgot_password(db: Session, email: str):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-    return {
-        "message": "Si el email existe, recibirás instrucciones"
-    }
+    return {"message": "Si el email existe, recibirás instrucciones"}
 
 
 # ─────────────────────────────
@@ -101,7 +97,6 @@ def reset_password(db: Session, token: str, new_password: str):
     if user:
         new_hash = hash_password(new_password)
         usuario_repository.actualizar_password(db, user.id_usuario, new_hash)
-
         return {"message": "Contraseña actualizada correctamente"}
 
     # ───── PLOMERO ─────
@@ -110,7 +105,6 @@ def reset_password(db: Session, token: str, new_password: str):
     if plomero:
         new_hash = hash_password(new_password)
         plomero_repository.actualizar_password(db, plomero.id_plomero, new_hash)
-
         return {"message": "Contraseña actualizada correctamente"}
 
     raise HTTPException(status_code=400, detail="Token inválido o expirado")

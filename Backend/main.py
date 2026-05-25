@@ -11,6 +11,7 @@ from routers import (
     disponibilidad_router,
     calificaciones_routes,
 )
+from routers.mensajes_router import router as mensajes_router  # agregado
 
 app = FastAPI(title="PlomerIA API")
 
@@ -19,7 +20,7 @@ app = FastAPI(title="PlomerIA API")
 # ─────────────────────────────
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # en producción: dominios reales
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -75,8 +76,15 @@ app.include_router(
     tags=["Calificaciones"]
 )
 
-# WS
+app.include_router(
+    mensajes_router,
+    prefix=f"{API_PREFIX}/mensajes",
+    tags=["Mensajes"]
+)
+
+# WebSocket — sin prefix porque el path ya lo define el router
 app.include_router(chat_ws_router)
+
 # ─────────────────────────────
 # HEALTH CHECK
 # ─────────────────────────────

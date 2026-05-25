@@ -9,11 +9,11 @@ from models.plomero import EspecialidadEnum
 # BASE
 # ─────────────────────────────
 class PlomeroBase(BaseModel):
-    nombre: str
-    apellido: str
-    email: EmailStr
-    telefono: str
-    genero: str
+    nombre:    str
+    apellido:  str
+    email:     EmailStr
+    # telefono eliminado — reemplazado por mensajería interna
+    genero:    str
     localidad: str
 
 
@@ -21,50 +21,38 @@ class PlomeroBase(BaseModel):
 # REQUEST (REGISTER)
 # ─────────────────────────────
 class PlomeroRequest(PlomeroBase):
-    especialidad: EspecialidadEnum
-    especialidades: List[EspecialidadEnum] = Field(default_factory=list)
-
+    especialidad:      EspecialidadEnum
+    especialidades:    List[EspecialidadEnum] = Field(default_factory=list)
     otra_especialidad: Optional[str] = None
-
     atiende_urgencias: bool
-    matricula_gas: bool
-
-    password: str
-    agenda: Optional[dict] = None
+    matricula_gas:     bool
+    password:          str
+    agenda:            Optional[dict] = None
 
 
 # ─────────────────────────────
 # RESPONSE
 # ─────────────────────────────
 class PlomeroResponse(BaseModel):
-    id_plomero: int
-
-    nombre: str
-    apellido: str
-    email: EmailStr
-    telefono: str
-
-    especialidad: EspecialidadEnum
-    especialidades: List[EspecialidadEnum] = Field(default_factory=list)
-
-    otra_especialidad: Optional[str] = None
-
-    genero: str
-    localidad: str
-
-    latitud: Optional[float] = None
-    longitud: Optional[float] = None
-
-    puntuacion: float
-    total_trabajos: int
-
+    id_plomero:        int
+    nombre:            str
+    apellido:          str
+    email:             EmailStr
+    # telefono eliminado — reemplazado por mensajería interna
+    especialidad: EspecialidadEnum | None = None
+    especialidades:    List[EspecialidadEnum] = Field(default_factory=list)
+    otra_especialidad: Optional[str]  = None
+    genero:            str
+    localidad:         str
+    latitud:           Optional[float] = None
+    longitud:          Optional[float] = None
+    puntuacion:        float
+    total_trabajos:    int
     atiende_urgencias: bool
-    disponible_ahora: bool
-    matricula_gas: bool
-
-    foto_perfil_path: Optional[str] = None
-    agenda: Optional[dict] = None
-
-    fecha_registro: datetime
+    disponible_ahora:  bool
+    matricula_gas:     bool
+    foto_perfil_path:  Optional[str]  = None
+    agenda:            Optional[dict] = None
+    fecha_registro:    datetime
 
     model_config = ConfigDict(from_attributes=True)

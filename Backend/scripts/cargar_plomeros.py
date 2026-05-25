@@ -4,7 +4,7 @@ cargar_plomeros.py
 Importa los 100 plomeros de plomeros_enriquecido.json a la base de datos.
 
 Uso (desde la carpeta Backend/):
-    python -m scripts.cargar_plomeros
+    python scripts\cargar_plomeros.py
 
 Podés correrlo varias veces — si el email ya existe, lo saltea.
 """
@@ -14,23 +14,20 @@ import os
 import json
 from pathlib import Path
 
-# ─── Path portable: funciona en cualquier PC ──────────────────────────────────
-# Cuando se corre con -m desde Backend/, el cwd ya es Backend/.
-# Esta línea cubre el caso en que se corra directamente el archivo.
+# ─── Path portable: funciona en cualquier PC ─────────────────────────────────
 BACKEND_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(BACKEND_DIR))
-os.chdir(BACKEND_DIR)  # necesario para que SQLite encuentre la base de datos
+os.chdir(BACKEND_DIR)
 
-# ─── Imports del proyecto ─────────────────────────────────────────────────────
+# ─── Imports del proyecto ────────────────────────────────────────────────────
 from utils.seguridad import hash_password
 from database import SessionLocal, engine, Base
 from models.plomero import Plomero
 
-
-# ─── Crear tablas si no existen ───────────────────────────────────────────────
+# ─── Crear tablas si no existen ──────────────────────────────────────────────
 Base.metadata.create_all(bind=engine)
 
-# ─── Cargar JSON (busca en data/ junto a este script) ─────────────────────────
+# ─── Cargar JSON ─────────────────────────────────────────────────────────────
 json_path = Path(__file__).resolve().parent / "plomeros_enriquecido.json"
 
 if not json_path.exists():
@@ -43,7 +40,7 @@ with open(json_path, encoding="utf-8") as f:
 
 print(f"📋 {len(plomeros_data)} plomeros encontrados en el JSON\n")
 
-# ─── Cargar en la base de datos ───────────────────────────────────────────────
+# ─── Cargar en la base de datos ──────────────────────────────────────────────
 db = SessionLocal()
 
 cargados = 0
@@ -60,23 +57,23 @@ try:
 
         try:
             plomero = Plomero(
-                nombre=datos["nombre"],
-                apellido=datos["apellido"],
-                email=datos["email"],
-                password_hash=hash_password(datos["password"]),
-                telefono=datos["telefono"],
-                localidad=datos["localidad"],
-                latitud=datos.get("latitud"),
-                longitud=datos.get("longitud"),
-                especialidades=datos["especialidades"],
-                genero=datos["genero"],
-                atiende_urgencias=datos["atiende_urgencias"],
-                matricula_gas=datos.get("matricula_gas", False),
-                puntuacion=datos["puntuacion"],
-                total_trabajos=datos["total_trabajos"],
-                disponible_ahora=datos["disponible_ahora"],
-                agenda=datos.get("agenda", {}),
-                foto_perfil_path=datos.get("foto_perfil_path"),
+                nombre            = datos["nombre"],
+                apellido          = datos["apellido"],
+                email             = datos["email"],
+                password_hash     = hash_password(datos["password"]),
+                # telefono eliminado — reemplazado por mensajería interna
+                localidad         = datos["localidad"],
+                latitud           = datos.get("latitud"),
+                longitud          = datos.get("longitud"),
+                especialidades    = datos["especialidades"],
+                genero            = datos["genero"],
+                atiende_urgencias = datos["atiende_urgencias"],
+                matricula_gas     = datos.get("matricula_gas", False),
+                puntuacion        = datos["puntuacion"],
+                total_trabajos    = datos["total_trabajos"],
+                disponible_ahora  = datos["disponible_ahora"],
+                agenda            = datos.get("agenda", {}),
+                foto_perfil_path  = datos.get("foto_perfil_path"),
             )
 
             db.add(plomero)
@@ -87,7 +84,6 @@ try:
             errores += 1
             print(f"  ✗ Error con {datos.get('email', '?')}: {e}")
 
-    # 👇 commit SOLO UNA VEZ
     db.commit()
 
 except Exception as e:

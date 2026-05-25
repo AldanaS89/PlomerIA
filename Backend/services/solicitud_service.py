@@ -1,21 +1,16 @@
+# services/solicitud_service.py
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
+from datetime import datetime
 
 from models.solicitud import EstadoSolicitud
-from repositories import solicitud_repository, usuario_repository
-from services.ia_service import analizar_descripcion
-from services import filtrado_service, notificacion_service
-
-from fastapi import HTTPException
-from sqlalchemy.orm import Session
-
-from models.solicitud import EstadoSolicitud
+from models.bloqueHorario import BloqueHorario
 from schemas.solicitud import SolicitudCreate, SolicitudResponse
 
 from repositories import (
     solicitud_repository,
     usuario_repository,
-    plomero_repository
+    plomero_repository,
 )
 
 from services import ia_service
@@ -31,51 +26,79 @@ def _to_response(s) -> SolicitudResponse:
 
 def chat_habilitado(solicitud) -> bool:
     """
-    Regla única del sistema de chat:
-    SOLO se habilita cuando el plomero está trabajando.
+    El chat solo se habilita cuando el plomero está trabajando.
+    Se cierra cuando pasa a PENDIENTE_CALIFICACION.
     """
     return solicitud.estado == EstadoSolicitud.EN_PROGRESO
+
+
+def _marcar_bloque_ocupado(
+    db: Session,
+    id_plomero: int,
+    fecha_trabajo: datetime | None
+) -> None:
+    """
+    Marca como ocupado el bloque horario del plomero
+    que coincide con la fecha del trabajo aceptado.
+    Si no hay bloque coincidente no rompe el flujo.
+    """
+    if not fecha_trabajo:
+        return
+    try:
+        bloque = (
+            db.query(BloqueHorario)
+            .filter(
+                BloqueHorario.id_plomero == id_plomero,
+                BloqueHorario.inicio     <= fecha_trabajo,
+                BloqueHorario.fin        >= fecha_trabajo,
+                BloqueHorario.ocupado    == False,
+            )
+            .first()
+        )
+        if bloque:
+            bloque.ocupado = True
+            db.commit()
+    except Exception as e:
+        print(f"[solicitud_service] No se pudo marcar bloque: {e}")
 
 
 # ─────────────────────────────────────────────
 # CREAR SOLICITUD
 # ─────────────────────────────────────────────
+
 def crear_solicitud(db: Session, datos: SolicitudCreate, id_usuario: int):
 
     diagnostico = ia_service.analizar_descripcion(datos.descripcion_raw)
 
-    usuario = usuario_repository.buscar_por_id(db, id_usuario)
+    usuario   = usuario_repository.buscar_por_id(db, id_usuario)
     localidad = usuario.localidad if usuario else None
 
-    # 1. buscar plomero automáticamente
-    plomero = plomero_repository.buscar_disponible_para(
+    # Buscar plomero con fallback en 3 niveles
+    # buscar_para_solicitud devuelve lista — tomamos el primero
+    resultado = plomero_repository.buscar_para_solicitud(
         db,
-        especialidad=diagnostico["etiqueta_ia"],
-        localidad=localidad,
-        atiende_urgencias=(diagnostico["urgencia_ia"] == "URGENTE"),
+        especialidades    = diagnostico["etiqueta_ia"],
+        atiende_urgencias = (diagnostico["urgencia_ia"] == "URGENTE"),
     )
+    plomero = resultado[0] if resultado else None
 
-    # fallback
     if not plomero:
-        plomero = plomero_repository.buscar_disponible_para(
-            db,
-            especialidad=diagnostico["etiqueta_ia"]
+        resultado = plomero_repository.buscar_para_solicitud(
+            db, especialidades=diagnostico["etiqueta_ia"]
         )
+        plomero = resultado[0] if resultado else None
 
     if not plomero:
-        plomero = plomero_repository.buscar_disponible_para(db)
+        resultado = plomero_repository.buscar_para_solicitud(db)
+        plomero = resultado[0] if resultado else None
 
-    # 2. crear solicitud con o sin plomero
-    solicitud = solicitud_repository.crear(
-        db,
-        id_usuario,
-        datos,
-        diagnostico
-    )
+    # Crear solicitud
+    solicitud = solicitud_repository.crear(db, id_usuario, datos, diagnostico)
 
     if plomero:
         solicitud.id_plomero = plomero.id_plomero
-        solicitud.estado = EstadoSolicitud.EN_PROGRESO
+        solicitud.estado     = EstadoSolicitud.EN_PROGRESO
+        _marcar_bloque_ocupado(db, plomero.id_plomero, solicitud.fecha)
     else:
         solicitud.estado = EstadoSolicitud.PENDIENTE
 
@@ -83,6 +106,7 @@ def crear_solicitud(db: Session, datos: SolicitudCreate, id_usuario: int):
     db.refresh(solicitud)
 
     return _to_response(solicitud)
+
 
 # ─────────────────────────────────────────────
 # OBTENER
@@ -94,15 +118,11 @@ def obtener_por_id(db: Session, id_solicitud: int):
 
 
 def obtener_para_usuario(db: Session, id_solicitud: int, id_usuario: int):
-
     solicitud = solicitud_repository.obtener_por_id(db, id_solicitud)
-
     if not solicitud:
         raise HTTPException(status_code=404, detail="No encontrada")
-
     if solicitud.id_usuario != id_usuario:
         raise HTTPException(status_code=403, detail="Sin acceso")
-
     return _to_response(solicitud)
 
 
@@ -125,7 +145,7 @@ def listar_por_plomero(db: Session, id_plomero: int):
 
 
 # ─────────────────────────────────────────────
-# ASIGNAR + INICIAR TRABAJO (CHAT SE ABRE ACÁ)
+# ACEPTAR — CHAT SE ABRE ACÁ
 # ─────────────────────────────────────────────
 
 def aceptar(db: Session, id_solicitud: int, id_plomero: int):
@@ -136,17 +156,17 @@ def aceptar(db: Session, id_solicitud: int, id_plomero: int):
         raise HTTPException(status_code=404, detail="No encontrada")
 
     if solicitud.id_plomero and solicitud.id_plomero != id_plomero:
-        raise HTTPException(status_code=400, detail="Ya tomada por otro plomero")
+        raise HTTPException(
+            status_code=400,
+            detail="Ya tomada por otro plomero"
+        )
 
-    # asignar plomero
     solicitud_repository.asignar_plomero(db, id_solicitud, id_plomero)
-
-    # activar estado de trabajo (CHAT SE HABILITA ACÁ)
     solicitud = solicitud_repository.cambiar_estado(
-        db,
-        id_solicitud,
-        EstadoSolicitud.EN_PROGRESO
+        db, id_solicitud, EstadoSolicitud.EN_PROGRESO
     )
+
+    _marcar_bloque_ocupado(db, id_plomero, solicitud.fecha)
 
     return _to_response(solicitud)
 
@@ -166,16 +186,14 @@ def rechazar(db: Session, id_solicitud: int, id_plomero: int):
         raise HTTPException(status_code=403, detail="No autorizado")
 
     solicitud = solicitud_repository.cambiar_estado(
-        db,
-        id_solicitud,
-        EstadoSolicitud.RECHAZADO
+        db, id_solicitud, EstadoSolicitud.CANCELADA
     )
 
     return _to_response(solicitud)
 
 
 # ─────────────────────────────────────────────
-# COMPLETAR (CIERRA CHAT)
+# COMPLETAR — CHAT SE CIERRA, ESPERA CALIFICACIÓN
 # ─────────────────────────────────────────────
 
 def completar(db: Session, id_solicitud: int, id_plomero: int):
@@ -189,19 +207,19 @@ def completar(db: Session, id_solicitud: int, id_plomero: int):
         raise HTTPException(status_code=403, detail="No autorizado")
 
     if solicitud.estado != EstadoSolicitud.EN_PROGRESO:
-        raise HTTPException(status_code=400, detail="No está en progreso")
+        raise HTTPException(
+            status_code=400,
+            detail="No está en progreso"
+        )
 
     solicitud = solicitud_repository.cambiar_estado(
-        db,
-        id_solicitud,
-        EstadoSolicitud.COMPLETADA
+        db, id_solicitud, EstadoSolicitud.PENDIENTE_CALIFICACION
     )
 
     return _to_response(solicitud)
 
-
 # ─────────────────────────────────────────────
-# CANCELAR (CLIENTE)
+# CANCELAR — CLIENTE
 # ─────────────────────────────────────────────
 
 def cancelar(db: Session, id_solicitud: int, id_usuario: int):
@@ -215,17 +233,18 @@ def cancelar(db: Session, id_solicitud: int, id_usuario: int):
         raise HTTPException(status_code=403, detail="Sin acceso")
 
     if solicitud.estado == EstadoSolicitud.EN_PROGRESO:
-        raise HTTPException(status_code=400, detail="No se puede cancelar en progreso")
+        raise HTTPException(
+            status_code=400,
+            detail="No se puede cancelar un trabajo en progreso"
+        )
 
     solicitud = solicitud_repository.cambiar_estado(
-        db,
-        id_solicitud,
-        EstadoSolicitud.CANCELADA
+        db, id_solicitud, EstadoSolicitud.CANCELADA
     )
 
     return {
         "mensaje": "Solicitud cancelada",
-        "estado": solicitud.estado.value
+        "estado":  solicitud.estado.value
     }
 
 

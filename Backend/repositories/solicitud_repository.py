@@ -115,7 +115,6 @@ def _plomero_a_dict(p: Plomero) -> dict:
         "total_trabajos":    p.total_trabajos,
         "atiende_urgencias": p.atiende_urgencias,
         "especialidades":    p.especialidades or [],
-        "telefono":          p.telefono,
     }
 
 
