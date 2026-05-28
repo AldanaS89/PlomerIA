@@ -3,6 +3,7 @@
 Responsabilidad única: validar y persistir imágenes de perfil.
 """
 import uuid
+import os
 import numpy as np
 import cv2
 from pathlib import Path
@@ -13,6 +14,10 @@ MIME_PERMITIDOS = {"image/jpeg", "image/png", "image/webp"}
 EXT_PERMITIDAS  = {".jpg", ".jpeg", ".png", ".webp"}
 MAX_BYTES       = 5 * 1024 * 1024
 
+# Ruta al clasificador — copiado a Backend/ para evitar bug de OpenCV con
+# rutas que contienen caracteres especiales (°, Ñ) en Windows
+RUTA_CLASIFICADOR = r"C:\temp\haarcascade.xml"
+
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
 
@@ -22,13 +27,22 @@ class FotoService:
     en S3 en lugar de disco, solo cambiamos esta clase.
     """
 
-    def guardar(self, foto: UploadFile) -> str:
-        """Valida y guarda la foto. Devuelve la ruta para la BD."""
-        contenido = self._validar(foto)
+    async def guardar(self, foto: UploadFile) -> str:
+        """Valida, verifica rostro y guarda la foto. Devuelve la ruta para la BD."""
+        contenido = await self._validar(foto)
         self._validar_rostro(contenido)
         return self._persistir(contenido, foto.filename)
 
-    def _validar(self, foto: UploadFile) -> bytes:
+    async def solo_validar(self, foto: UploadFile) -> None:
+        """
+        Solo verifica formato y rostro — no guarda nada.
+        Usado por el endpoint /validar-foto para feedback
+        inmediato en el paso 1 del registro.
+        """
+        contenido = await self._validar(foto)
+        self._validar_rostro(contenido)
+
+    async def _validar(self, foto: UploadFile) -> bytes:
         if foto.content_type not in MIME_PERMITIDOS:
             raise HTTPException(
                 status_code=400,
@@ -40,7 +54,7 @@ class FotoService:
                 status_code=400,
                 detail=f"Extensión '{sufijo}' no permitida."
             )
-        contenido = foto.file.read()
+        contenido = await foto.read()
         if len(contenido) > MAX_BYTES:
             raise HTTPException(status_code=400, detail="La imagen supera 5 MB.")
         if not self._magic_bytes_ok(contenido):
@@ -61,11 +75,23 @@ class FotoService:
         img   = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
         if img is None:
             return
-        cascade = cv2.CascadeClassifier(
-            cv2.data.haarcascades + 'haarcascade_frontalface_default.xml'
-        )
+
+        cascade = cv2.CascadeClassifier(RUTA_CLASIFICADOR)
+
+        if cascade.empty():
+            print(f"[foto_service] Clasificador no encontrado en: {RUTA_CLASIFICADOR}")
+            raise HTTPException(
+                status_code=500,
+                detail="Error interno: clasificador de rostros no disponible."
+            )
+
         gray  = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-        faces = cascade.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=5, minSize=(30, 30))
+        faces = cascade.detectMultiScale(
+            gray,
+            scaleFactor=1.05,
+            minNeighbors=8,
+            minSize=(60, 60)
+        )
         if len(faces) == 0:
             raise HTTPException(
                 status_code=400,
@@ -80,4 +106,5 @@ class FotoService:
         return f"uploads/fotos/{nombre}"
 
 
-foto_service = FotoService()
+# Instancia con nombre distinto al módulo para evitar conflicto de imports
+servicio_foto = FotoService()

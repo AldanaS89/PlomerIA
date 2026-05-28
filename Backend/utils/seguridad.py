@@ -22,7 +22,7 @@ def verify_password(password: str, hashed: str) -> bool:
 # ─────────────────────────────
 # JWT
 # ─────────────────────────────
-def create_token(data: dict, expires_hours: int = 24):
+def create_token(data: dict, expires_hours: int = 168) -> str:
     payload = data.copy()
 
     expire = datetime.now(timezone.utc) + timedelta(hours=expires_hours)

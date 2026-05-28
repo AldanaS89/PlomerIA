@@ -22,7 +22,7 @@ class Plomero(PersonaMixin, Base):
     genero            = Column(String)
     atiende_urgencias = Column(Boolean, default=False)
     disponible_ahora  = Column(Boolean, default=True)
-    puntuacion        = Column(Float,   default=0.0)
+    puntuacion        = Column(Float,   default=5.0)
     total_trabajos    = Column(Integer, default=0)
     matricula_gas     = Column(Boolean, default=False)
     foto_perfil_path  = Column(String,  nullable=True)

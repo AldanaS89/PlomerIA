@@ -1,31 +1,37 @@
-# routers/plomeros.py
+# routers/plomeros_routes.py
 import json
-import numpy as np
-
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
+from fastapi import APIRouter, Depends, UploadFile, File, Form
 from sqlalchemy.orm import Session
 
-from Backend.repositories import plomero_repository
-from services import foto_service
+from repositories import plomero_repository
+from services.foto_service import servicio_foto
 from database import get_db
 from schemas.plomero import PlomeroResponse
 
-from services import plomero_service
+from services import plomero_service, ia_service
 from core.auth import get_plomero_actual
 
 router = APIRouter(tags=["Plomeros"])
 
 
-# ── REGISTRO (multipart/form-data — acepta foto opcional) ────────────────────
+# ── VALIDAR FOTO (solo verifica rostro, no guarda) ────────────────────────────
+@router.post("/validar-foto")
+async def validar_foto(
+    foto: UploadFile = File(...),
+):
+    await servicio_foto.solo_validar(foto)
+    return {"valido": True, "mensaje": "Rostro detectado correctamente"}
+
+
+# ── REGISTRO ──────────────────────────────────────────────────────────────────
 @router.post("/registro")
 async def registrar(
     nombre:            str                  = Form(...),
     apellido:          str                  = Form(...),
     email:             str                  = Form(...),
     password:          str                  = Form(...),
-    telefono:          str                  = Form(...),
     localidad:         str                  = Form(...),
     especialidades:    str                  = Form(...),
     genero:            str                  = Form("M"),
@@ -36,7 +42,6 @@ async def registrar(
     foto:              Optional[UploadFile] = File(None),
     db:                Session              = Depends(get_db),
 ):
-    # Parseo de JSON strings
     try:
         lista_esp = json.loads(especialidades)
     except Exception:
@@ -49,8 +54,7 @@ async def registrar(
     except Exception:
         agenda_dict = {}
 
-    # Guardar foto — delegado al service
-    foto_path = foto_service.guardar(foto) if foto and foto.filename else None
+    foto_path = await servicio_foto.guardar(foto) if foto and foto.filename else None
 
     return plomero_service.registrar_completo(
         db                = db,
@@ -58,7 +62,6 @@ async def registrar(
         apellido          = apellido,
         email             = email,
         password          = password,
-        telefono          = telefono,
         localidad         = localidad,
         especialidades    = lista_esp,
         otra_especialidad = otra_especialidad,
@@ -69,23 +72,17 @@ async def registrar(
         foto_path         = foto_path,
     )
 
-# ─────────────────────────────
-# PERFIL DEL PLOMERO LOGUEADO
-# ─────────────────────────────
 
+# ── PERFIL DEL PLOMERO LOGUEADO ───────────────────────────────────────────────
 @router.get("/me", response_model=PlomeroResponse)
 def obtener_mi_perfil(
     db: Session = Depends(get_db),
     id_plomero: int = Depends(get_plomero_actual)
 ):
+    return plomero_service.obtener_mi_perfil(db, id_plomero)
 
-    return plomero_service.obtener_mi_perfil(
-        db,
-        id_plomero
-    )
 
-# ── BUSCAR / SUGERIR ──────────────────────────────────────────────────────────
-
+# ── BUSCAR ────────────────────────────────────────────────────────────────────
 @router.get("/buscar", response_model=list[PlomeroResponse])
 def buscar(
     localidad:         Optional[str]  = None,
@@ -97,20 +94,50 @@ def buscar(
     return plomero_service.buscar(db, localidad, genero, especialidad, atiende_urgencias)
 
 
+# ── SUGERIR — con validación de descripción ───────────────────────────────────
 @router.post("/sugerir")
 def sugerir(datos: dict, db: Session = Depends(get_db)):
-    return plomero_service.sugerir(
+    descripcion      = datos.get("descripcion", "")
+    solo_validar     = datos.get("solo_validar", False)
+    solo_mujeres     = datos.get("solo_mujeres", False)
+    urgencia_forzada = datos.get("urgencia_forzada", False)
+    lat              = datos.get("latitud")
+    lon              = datos.get("longitud")
+
+    # Siempre analizar la descripción primero
+    diagnostico = ia_service.analizar_descripcion(descripcion)
+
+    # Si la descripción no es válida devolver error antes de buscar plomeros
+    if not diagnostico.get("valido", True):
+        return {
+            "diagnostico": diagnostico,
+            "plomeros":    [],
+        }
+
+    # Si solo_validar=True el frontend solo quería verificar — no buscar plomeros
+    if solo_validar:
+        return {
+            "diagnostico": diagnostico,
+            "plomeros":    [],
+        }
+
+    # Buscar plomeros
+    plomeros = plomero_service.sugerir(
         db               = db,
-        descripcion      = datos.get("descripcion", ""),
-        solo_mujeres     = datos.get("solo_mujeres", False),
-        lat_usuario      = datos.get("latitud"),
-        lon_usuario      = datos.get("longitud"),
-        urgencia_forzada = datos.get("urgencia_forzada", False),
+        descripcion      = descripcion,
+        solo_mujeres     = solo_mujeres,
+        lat_usuario      = lat,
+        lon_usuario      = lon,
+        urgencia_forzada = urgencia_forzada,
     )
+
+    return {
+        "diagnostico": diagnostico,
+        "plomeros":    plomeros,
+    }
 
 
 # ── DISPONIBILIDAD ────────────────────────────────────────────────────────────
-
 @router.patch("/disponibilidad")
 def cambiar_disponibilidad(
     disponible: bool,
@@ -120,8 +147,7 @@ def cambiar_disponibilidad(
     return plomero_service.cambiar_disponibilidad(db, id_plomero, disponible)
 
 
-# ── PERFIL ────────────────────────────────────────────────────────────────────
-
+# ── PERFIL POR ID ─────────────────────────────────────────────────────────────
 @router.get("/{id}", response_model=PlomeroResponse)
 def obtener(id: int, db: Session = Depends(get_db)):
     return plomero_service.obtener_por_id(db, id)

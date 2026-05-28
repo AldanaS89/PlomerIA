@@ -36,8 +36,7 @@ def registrar_completo(
     apellido: str,
     email: str,
     password: str,
-    telefono: str,
-    direccion: str,
+    # telefono eliminado — reemplazado por mensajería interna
     localidad: str,
     especialidades: list[str],
     otra_especialidad: Optional[str],
@@ -46,6 +45,7 @@ def registrar_completo(
     matricula_gas: bool,
     agenda: dict,
     foto_path: Optional[str],
+    direccion: Optional[str] = None,   # opcional para compatibilidad futura
 ):
     if plomero_repository.buscar_por_email(db, email):
         raise HTTPException(
@@ -53,7 +53,7 @@ def registrar_completo(
             detail="El email ya está registrado"
         )
 
-    latitud, longitud = geocodificar(direccion, localidad)
+    latitud, longitud = geocodificar(direccion or localidad, localidad)
 
     esp_final = []
     otra_custom = otra_especialidad
@@ -65,25 +65,25 @@ def registrar_completo(
             esp_final.append(e.upper())
 
     nuevo = Plomero(
-        especialidad        = esp_final[0] if esp_final else "PLOMERIA_GENERAL",
-        especialidades      = esp_final,
-        otra_especialidad   = otra_custom,
-        nombre              = nombre,
-        apellido            = apellido,
-        email               = email,
-        telefono            = telefono,
-        genero              = genero,
-        localidad           = localidad,
-        latitud             = latitud,
-        longitud            = longitud,
-        atiende_urgencias   = atiende_urgencias,
-        matricula_gas       = matricula_gas,
-        password_hash       = hash_password(password),
-        disponible_ahora    = True,
-        puntuacion          = 0.0,
-        total_trabajos      = 0,
-        foto_perfil_path    = foto_path,
-        agenda              = agenda if agenda else None,
+        especialidad      = esp_final[0] if esp_final else "PLOMERIA_GENERAL",
+        especialidades    = esp_final,
+        otra_especialidad = otra_custom,
+        nombre            = nombre,
+        apellido          = apellido,
+        email             = email,
+        # telefono eliminado
+        genero            = genero,
+        localidad         = localidad,
+        latitud           = latitud,
+        longitud          = longitud,
+        atiende_urgencias = atiende_urgencias,
+        matricula_gas     = matricula_gas,
+        password_hash     = hash_password(password),
+        disponible_ahora  = True,
+        puntuacion        = 0.0,
+        total_trabajos    = 0,
+        foto_perfil_path  = foto_path,
+        agenda            = agenda if agenda else None,
     )
 
     plomero = plomero_repository.crear_plomero(db, nuevo)
