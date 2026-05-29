@@ -4,7 +4,6 @@ import { Eye, EyeOff } from "lucide-react";
 import api from "../services/api";
 import { useAuthStore } from "../store/authStore";
 
-// Recibe onNav desde App.jsx para navegar sin React Router
 const Login = ({ onNav }) => {
   const setAuth  = useAuthStore((s) => s.setAuth);
   const [showPass, setShowPass] = useState(false);
@@ -18,29 +17,22 @@ const Login = ({ onNav }) => {
     setError("");
     setLoading(true);
     try {
-      let res;
-      let rol;
-
-      try {
-        // Intentar como cliente primero
-        res = await api.post("/usuarios/login", { email, password });
-        rol = res.data.rol || "cliente";
-      } catch {
-        // Si falla, intentar como plomero
-        res = await api.post("/plomeros/login", { email, password });
-        rol = "plomero";
-      }
+      // Un único endpoint unificado para clientes y plomeros
+      const res = await api.post("/auth/login", { email, password });
+      const rol = res.data.tipo || "cliente";
 
       const usuario = {
-        id:     res.data.id_usuario ?? res.data.id_plomero,
-        nombre: res.data.nombre,
-        rol,
+        id:        res.data.id,
+        nombre:    res.data.nombre,
+        apellido:  res.data.apellido,
+        email:     res.data.email,
+        localidad: res.data.localidad,
+        direccion: res.data.direccion,
+        rol:       res.data.tipo,
       };
 
-      // Zustand persist lo guarda en localStorage automáticamente
       setAuth(res.data.access_token, usuario);
 
-      // Navegar según rol usando el sistema de App.jsx
       if (rol === "plomero") {
         onNav("plomero");
       } else {
@@ -109,7 +101,6 @@ const Login = ({ onNav }) => {
             </button>
           </div>
 
-          {/* Olvidé contraseña → onNav en lugar de navigate */}
           <button
             type="button"
             onClick={() => onNav("olvide-password")}
@@ -152,8 +143,8 @@ const Login = ({ onNav }) => {
               className="flex flex-col items-center p-5 border border-emerald-100 rounded-[2rem] bg-emerald-50/50 hover:bg-emerald-100 transition-all group shadow-sm shadow-emerald-50"
             >
               <span className="text-3xl mb-2 group-hover:scale-110 transition-transform">🔧</span>
-              <span className="text-[10px] font-extrabold text-emerald-600 uppercase">Soy plomero</span>
-              <span className="text-[9px] text-emerald-400 mt-1 text-center leading-tight">Quiero ofrecer servicios</span>
+              <span className="text-[10px] font-extrabold text-emerald-600 uppercase">Soy profesional</span>
+              <span className="text-[9px] text-emerald-400 mt-1 text-center leading-tight">Quiero ofrecer mis servicios</span>
             </button>
           </div>
         </div>

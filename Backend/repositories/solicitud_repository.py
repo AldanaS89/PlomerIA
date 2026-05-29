@@ -1,72 +1,80 @@
 # repositories/solicitud_repository.py
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 from models.solicitud import EstadoSolicitud, Solicitud
-from models.plomero import Plomero 
+from models.plomero import Plomero
+from models.usuario import Usuario
 from schemas.solicitud import SolicitudCreate
 
 
-def crear(
-    db: Session,
-    id_usuario: int,
-    datos: SolicitudCreate,
-    diagnostico: dict
-) -> Solicitud:
+def _cargar_relaciones(query):
+    """Carga plomero y usuario junto con cada solicitud para evitar lazy loading."""
+    return query.options(
+        joinedload(Solicitud.plomero),
+        joinedload(Solicitud.usuario),
+    )
 
+
+def crear(db: Session, id_usuario: int, datos: SolicitudCreate, diagnostico: dict) -> Solicitud:
     solicitud = Solicitud(
-    id_usuario       = id_usuario,
-    descripcion_raw  = datos.descripcion_raw,
-    localidad_evento = datos.localidad_evento,
-    latitud_evento   = datos.latitud_evento,
-    longitud_evento  = datos.longitud_evento,
-    etiqueta_ia      = diagnostico["etiqueta_ia"],
-    urgencia_ia      = diagnostico["urgencia_ia"],
-    presupuesto_min  = diagnostico["presupuesto_min"],
-    presupuesto_max  = diagnostico["presupuesto_max"],
-    estado           = EstadoSolicitud.PENDIENTE
-)
-
+        id_usuario       = id_usuario,
+        descripcion_raw  = datos.descripcion_raw,
+        localidad_evento = datos.localidad_evento,
+        latitud_evento   = datos.latitud_evento,
+        longitud_evento  = datos.longitud_evento,
+        etiqueta_ia      = diagnostico["etiqueta_ia"],
+        urgencia_ia      = diagnostico["urgencia_ia"],
+        presupuesto_min  = diagnostico["presupuesto_min"],
+        presupuesto_max  = diagnostico["presupuesto_max"],
+        estado           = EstadoSolicitud.PENDIENTE
+    )
     db.add(solicitud)
     db.commit()
     db.refresh(solicitud)
-
     return solicitud
+
 
 def asignar_plomero(db: Session, id_solicitud: int, id_plomero: int | None) -> Solicitud | None:
     solicitud = obtener_por_id(db, id_solicitud)
     if not solicitud:
         return None
-    solicitud.id_plomero = id_plomero  # None para desasignar
+    solicitud.id_plomero = id_plomero
     db.commit()
     db.refresh(solicitud)
     return solicitud
 
+
 def obtener_por_id(db: Session, id: int) -> Solicitud | None:
-    return db.query(Solicitud).filter(Solicitud.id_solicitud == id).first()
+    return (
+        _cargar_relaciones(db.query(Solicitud))
+        .filter(Solicitud.id_solicitud == id)
+        .first()
+    )
 
 
 def listar_por_usuario(db: Session, id_usuario: int) -> list[Solicitud]:
-    """Busca todas las solicitudes de un cliente específico."""
-    return db.query(Solicitud).filter(Solicitud.id_usuario == id_usuario).all()
+    return (
+        _cargar_relaciones(db.query(Solicitud))
+        .filter(Solicitud.id_usuario == id_usuario)
+        .order_by(Solicitud.fecha.desc())
+        .all()
+    )
+
 
 def listar_por_plomero(db: Session, id_plomero: int) -> list[Solicitud]:
-    """
-    Devuelve las solicitudes relevantes para un plomero:
-    - Pendientes donde su ID aparece en ids_plomeros_sugeridos (le llegó la notificación)
-    - Aceptadas/completadas donde él es el plomero asignado
-    """
-    todas = db.query(Solicitud).filter(
-        Solicitud.estado != EstadoSolicitud.RECHAZADO
-    ).order_by(Solicitud.fecha.desc()).all()
+    todas = (
+        _cargar_relaciones(db.query(Solicitud))
+        .filter(Solicitud.estado != EstadoSolicitud.CANCELADA)
+        .order_by(Solicitud.fecha.desc())
+        .all()
+    )
 
     resultado = []
     id_str = str(id_plomero)
 
     for s in todas:
-        # Es el plomero asignado
         if s.id_plomero == id_plomero:
             resultado.append(s)
             continue
-        # Está en la lista de sugeridos (pendiente y le llegó la notif)
         if s.estado == EstadoSolicitud.PENDIENTE and s.ids_plomeros_sugeridos:
             ids = [i.strip() for i in s.ids_plomeros_sugeridos.split(",")]
             if id_str in ids:
@@ -74,26 +82,19 @@ def listar_por_plomero(db: Session, id_plomero: int) -> list[Solicitud]:
 
     return resultado
 
-def listar_con_nombres(db: Session) -> list[Solicitud]:
-    """Trae todas las solicitudes unidas con el nombre del plomero."""
-    resultados = db.query(
-        Solicitud, 
-        (Plomero.nombre + " " + Plomero.apellido).label("nombre_plomero")
-    ).outerjoin(Plomero, Solicitud.id_plomero == Plomero.id_plomero).all()
-    
-    for solicitud, nombre in resultados:
-        solicitud.nombre_plomero = nombre if nombre else "Sin asignar"
-    
-    return [r[0] for r in resultados]
 
-def cambiar_estado(db: Session, id: int, nuevo_estado: str) -> Solicitud | None:
+def cambiar_estado(db: Session, id: int, nuevo_estado) -> Solicitud | None:
     solicitud = obtener_por_id(db, id)
     if not solicitud:
         return None
     solicitud.estado = nuevo_estado
     db.commit()
-    db.refresh(solicitud)
-    return solicitud
+    # Re-cargar con relaciones después del commit
+    return (
+        _cargar_relaciones(db.query(Solicitud))
+        .filter(Solicitud.id_solicitud == id)
+        .first()
+    )
 
 
 def guardar_ids_sugeridos(db: Session, id_solicitud: int, ids: list[int]) -> None:
@@ -117,6 +118,43 @@ def _plomero_a_dict(p: Plomero) -> dict:
     }
 
 
+def buscar_por_texto(db: Session, q: str) -> list[Solicitud]:
+    query = _cargar_relaciones(db.query(Solicitud))
+    if q:
+        query = query.filter(Solicitud.descripcion_raw.ilike(f"%{q}%"))
+    return query.order_by(Solicitud.fecha.desc()).all()
+
+
+def cancelar(db: Session, solicitud: Solicitud):
+    solicitud.estado = EstadoSolicitud.CANCELADA
+    solicitud.ids_plomeros_sugeridos = None
+    db.commit()
+    db.refresh(solicitud)
+    return solicitud
+
+
+def remover_plomero_sugerido(db, solicitud, id_plomero):
+    if not solicitud.ids_plomeros_sugeridos:
+        return
+    ids = [i.strip() for i in solicitud.ids_plomeros_sugeridos.split(",") if i.strip()]
+    ids = [i for i in ids if i != str(id_plomero)]
+    solicitud.ids_plomeros_sugeridos = ",".join(ids)
+    db.commit()
+
+
+def listar_con_nombres(db: Session) -> list[Solicitud]:
+    """Trae todas las solicitudes unidas con el nombre del plomero."""
+    resultados = db.query(
+        Solicitud,
+        (Plomero.nombre + " " + Plomero.apellido).label("nombre_plomero")
+    ).outerjoin(Plomero, Solicitud.id_plomero == Plomero.id_plomero).all()
+
+    for solicitud, nombre in resultados:
+        solicitud.nombre_plomero = nombre if nombre else "Sin asignar"
+
+    return [r[0] for r in resultados]
+
+
 def listar_por_usuario_con_detalle(db: Session, id_usuario: int) -> list[dict]:
     """
     Devuelve las solicitudes del usuario con datos completos:
@@ -124,7 +162,7 @@ def listar_por_usuario_con_detalle(db: Session, id_usuario: int) -> list[dict]:
     - plomeros_notificados: lista con datos de cada plomero sugerido
     """
     solicitudes = (
-        db.query(Solicitud)
+        _cargar_relaciones(db.query(Solicitud))
         .filter(Solicitud.id_usuario == id_usuario)
         .order_by(Solicitud.fecha.desc())
         .all()
@@ -142,10 +180,8 @@ def listar_por_usuario_con_detalle(db: Session, id_usuario: int) -> list[dict]:
             "plomeros_notificados": [],
         }
 
-        if s.id_plomero:
-            p = db.query(Plomero).filter(Plomero.id_plomero == s.id_plomero).first()
-            if p:
-                item["plomero"] = _plomero_a_dict(p)
+        if s.plomero:
+            item["plomero"] = _plomero_a_dict(s.plomero)
 
         if s.ids_plomeros_sugeridos:
             try:
@@ -160,45 +196,3 @@ def listar_por_usuario_con_detalle(db: Session, id_usuario: int) -> list[dict]:
         resultado.append(item)
 
     return resultado
-
-def buscar_por_texto(
-    db: Session,
-    q: str
-) -> list[Solicitud]:
-    query = db.query(Solicitud)
-    if q:
-        query = query.filter(Solicitud.descripcion_raw.ilike(f"%{q}%"))
-    return query.order_by(Solicitud.fecha.desc()).all()
-
-def cancelar(
-    db: Session,
-    solicitud: Solicitud
-):
-    solicitud.estado = EstadoSolicitud.RECHAZADO
-    solicitud.ids_plomeros_sugeridos = None
-
-    db.commit()
-    db.refresh(solicitud)
-
-    return solicitud
-
-#Si un plomero rechaza el trabajo, lo elimina de los sugeridos
-def remover_plomero_sugerido(
-    db,
-    solicitud,
-    id_plomero
-):
-    if not solicitud.ids_plomeros_sugeridos:
-        return
-
-    ids = [
-        i.strip()
-        for i in solicitud.ids_plomeros_sugeridos.split(",")
-        if i.strip()
-    ]
-
-    ids = [i for i in ids if i != str(id_plomero)]
-
-    solicitud.ids_plomeros_sugeridos = ",".join(ids)
-
-    db.commit()

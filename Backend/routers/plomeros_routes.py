@@ -16,7 +16,7 @@ from core.auth import get_plomero_actual
 router = APIRouter(tags=["Plomeros"])
 
 
-# ── VALIDAR FOTO (solo verifica rostro, no guarda) ────────────────────────────
+# ── VALIDAR FOTO ──────────────────────────────────────────────────────────────
 @router.post("/validar-foto")
 async def validar_foto(
     foto: UploadFile = File(...),
@@ -39,6 +39,9 @@ async def registrar(
     matricula_gas:     bool                 = Form(False),
     agenda:            str                  = Form("{}"),
     otra_especialidad: Optional[str]        = Form(None),
+    direccion:         Optional[str]        = Form(None),
+    latitud:           Optional[float]      = Form(None),   # coordenadas del mapa
+    longitud:          Optional[float]      = Form(None),   # coordenadas del mapa
     foto:              Optional[UploadFile] = File(None),
     db:                Session              = Depends(get_db),
 ):
@@ -70,6 +73,9 @@ async def registrar(
         matricula_gas     = matricula_gas,
         agenda            = agenda_dict,
         foto_path         = foto_path,
+        direccion         = direccion,
+        latitud           = latitud,
+        longitud          = longitud,
     )
 
 
@@ -104,24 +110,20 @@ def sugerir(datos: dict, db: Session = Depends(get_db)):
     lat              = datos.get("latitud")
     lon              = datos.get("longitud")
 
-    # Siempre analizar la descripción primero
     diagnostico = ia_service.analizar_descripcion(descripcion)
 
-    # Si la descripción no es válida devolver error antes de buscar plomeros
     if not diagnostico.get("valido", True):
         return {
             "diagnostico": diagnostico,
             "plomeros":    [],
         }
 
-    # Si solo_validar=True el frontend solo quería verificar — no buscar plomeros
     if solo_validar:
         return {
             "diagnostico": diagnostico,
             "plomeros":    [],
         }
 
-    # Buscar plomeros
     plomeros = plomero_service.sugerir(
         db               = db,
         descripcion      = descripcion,

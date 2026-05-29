@@ -74,10 +74,12 @@ def registrar_calificacion_post_servicio(
     )
     plomero = plomero_repository.buscar_por_id(db, solicitud.id_plomero)
     if plomero:
+        # Si no hay calificaciones aún, mantener la puntuación actual
+        puntuacion_final = nuevo_promedio if nuevo_promedio > 0 else plomero.puntuacion
         plomero_repository.actualizar_puntuacion(
             db,
             solicitud.id_plomero,
-            nuevo_promedio,
+            puntuacion_final,
             plomero.total_trabajos + 1
         )
 

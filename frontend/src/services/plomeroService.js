@@ -1,5 +1,15 @@
 import api from './api'
 
+// ── VALIDAR FOTO — llamado en el paso 1 antes de avanzar ─────────────────────
+export async function validarFotoPlomero(file) {
+  const fd = new FormData()
+  fd.append('foto', file)
+  const res = await api.post('/plomeros/validar-foto', fd, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  })
+  return res.data
+}
+
 export async function registerPlomero(payload) {
   const fd = new FormData()
   Object.entries(payload).forEach(([k, v]) => {
@@ -26,7 +36,7 @@ export async function loginPlomero(datos) {
 }
 
 export async function getMisSolicitudesPlomero() {
-  const res = await api.get('/solicitudes/asignadas')
+  const res = await api.get('/solicitudes/plomero/me')
   return Array.isArray(res.data) ? res.data : []
 }
 

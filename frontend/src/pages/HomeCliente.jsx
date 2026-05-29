@@ -189,12 +189,53 @@ function Header({ screen, onNav, notifCount, onLogout, user }) {
 // ─── SCREEN: PROBLEMA ────────────────────────────────────────────────────────
 
 function ScreenProblema({ onBuscar }) {
-  const [texto, setTexto] = useState("");
-  const [urgencia, setUrgencia] = useState(false);
+  const [texto,     setTexto]     = useState("");
+  const [urgencia,  setUrgencia]  = useState(false);
+  const [validando, setValidando] = useState(false);
+  const [errorDesc, setErrorDesc] = useState("");
+
+  const URGENCIA_KEYWORDS = [
+    "inunda","pérdida","perder","no cierra","roto","explota",
+    "revienta","urgente","emergencia","fuga","chorrea","sale agua",
+  ];
 
   const handleChange = (v) => {
     setTexto(v);
+    setErrorDesc("");
     setUrgencia(URGENCIA_KEYWORDS.some(k => v.toLowerCase().includes(k)));
+  };
+
+  const handleBuscar = async () => {
+    if (texto.trim().length < 10) return;
+    setValidando(true);
+    setErrorDesc("");
+    try {
+      // Validar descripción con el backend antes de avanzar
+      const res = await api.post("/plomeros/sugerir", {
+        descripcion:      texto,
+        solo_mujeres:     false,
+        urgencia_forzada: urgencia,
+        latitud:          -34.85,
+        longitud:         -58.38,
+        solo_validar:     true,  // flag para que solo valide sin devolver plomeros
+      });
+      // Si el backend devuelve valido: false en el diagnóstico
+      if (res.data?.diagnostico?.valido === false) {
+        setErrorDesc(res.data.diagnostico.mensaje_error ||
+          "Por favor describí mejor el problema.");
+        return;
+      }
+      onBuscar(texto, urgencia);
+    } catch (e) {
+      const detail = e.response?.data?.detail;
+      if (detail) {
+        setErrorDesc(detail);
+      } else {
+        onBuscar(texto, urgencia);
+      }
+    } finally {
+      setValidando(false);
+    }
   };
 
   return (
@@ -221,6 +262,7 @@ function ScreenProblema({ onBuscar }) {
           textTransform: "uppercase", letterSpacing: "0.6px",
           display: "block", marginBottom: "10px",
         }}>Describí tu problema</label>
+
         <textarea
           value={texto}
           onChange={e => handleChange(e.target.value)}
@@ -228,16 +270,39 @@ function ScreenProblema({ onBuscar }) {
           rows={6}
           style={{
             width: "100%", borderRadius: "12px", padding: "14px",
-            border: urgencia ? "2px solid #FCA5A5" : "2px solid #E2E8F0",
+            border: errorDesc
+              ? "2px solid #FCA5A5"
+              : urgencia
+                ? "2px solid #FCA5A5"
+                : "2px solid #E2E8F0",
             fontFamily: "'DM Sans',sans-serif", fontSize: "15px",
             color: "#0F172A", resize: "vertical", outline: "none",
             lineHeight: "1.6", boxSizing: "border-box",
-            background: urgencia ? "#FFF5F5" : "#F8FAFC",
+            background: errorDesc ? "#FFF5F5" : urgencia ? "#FFF5F5" : "#F8FAFC",
             transition: "all 0.2s",
           }}
         />
 
-        {urgencia && (
+        {/* Error de descripción inválida */}
+        {errorDesc && (
+          <div style={{
+            marginTop: "12px", background: "#FEF2F2",
+            border: "1.5px solid #FECACA", borderRadius: "12px",
+            padding: "14px 16px",
+          }}>
+            <div style={{ fontFamily: "'DM Sans',sans-serif", fontWeight: "800",
+              fontSize: "13px", color: "#B91C1C", marginBottom: "4px" }}>
+              ⚠️ Descripción inválida
+            </div>
+            <div style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "13px",
+              color: "#7F1D1D", lineHeight: "1.5" }}>
+              {errorDesc}
+            </div>
+          </div>
+        )}
+
+        {/* Urgencia detectada */}
+        {urgencia && !errorDesc && (
           <div style={{
             marginTop: "12px", background: "#FEF2F2",
             border: "1.5px solid #FECACA", borderRadius: "12px",
@@ -263,21 +328,26 @@ function ScreenProblema({ onBuscar }) {
               marginLeft: "8px" }}>· Modo urgencia activado</span>}
           </div>
           <button
-            disabled={texto.trim().length < 10}
-            onClick={() => onBuscar(texto, urgencia)}
+            disabled={texto.trim().length < 10 || validando}
+            onClick={handleBuscar}
             style={{
-              background: texto.trim().length >= 10
+              background: texto.trim().length >= 10 && !validando
                 ? urgencia
                   ? "linear-gradient(135deg,#EF4444,#B91C1C)"
                   : "linear-gradient(135deg,#3B82F6,#2563EB)"
                 : "#E2E8F0",
-              color: texto.trim().length >= 10 ? "#fff" : "#94A3B8",
+              color: texto.trim().length >= 10 && !validando ? "#fff" : "#94A3B8",
               border: "none", borderRadius: "12px", padding: "13px 28px",
               fontFamily: "'DM Sans',sans-serif", fontWeight: "700",
-              fontSize: "15px", cursor: texto.trim().length >= 10 ? "pointer" : "default",
+              fontSize: "15px", cursor: texto.trim().length >= 10 && !validando
+                ? "pointer" : "default",
               transition: "all 0.2s",
             }}>
-            {urgencia ? "🚨 Buscar ahora" : "Buscar profesionales →"}
+            {validando
+              ? "Analizando..."
+              : urgencia
+                ? "🚨 Buscar ahora"
+                : "Buscar profesionales →"}
           </button>
         </div>
       </div>
@@ -309,6 +379,25 @@ function getFechaParaDia(diaStr) {
   const fecha = new Date(hoy);
   fecha.setDate(hoy.getDate() + diff);
   return fecha;
+}
+
+function formatearTurno(turnoStr) {
+  if (!turnoStr) return null;
+  try {
+    const IDX = { "Lun":1,"Mar":2,"Mié":3,"Jue":4,"Vie":5,"Sáb":6,"Dom":0 };
+    const partes = turnoStr.split("_");
+    const dia = partes[0];
+    const hora = partes[2] ? parseInt(partes[2]) : null;
+    const hoy = new Date();
+    const hoyNum = hoy.getDay();
+    const target = IDX[dia] ?? 1;
+    let diff = target - hoyNum;
+    if (diff <= 0) diff += 7;
+    const fecha = new Date(hoy);
+    fecha.setDate(hoy.getDate() + diff);
+    const fechaStr = `${fecha.getDate()}/${fecha.getMonth() + 1}`;
+    return hora !== null ? `${dia} ${fechaStr} a las ${hora}:00hs` : `${dia} ${fechaStr}`;
+  } catch { return turnoStr.replace(/_/g, " "); }
 }
 
 function TurnoSelector({ plomero, turnoActual, onSelect }) {
@@ -462,7 +551,11 @@ function ScreenResultados({ problema, urgencia, idsExcluidos = [], onEnviar }) {
         latitud:          lat ?? -34.85,
         longitud:         lon ?? -58.38,
       });
-      const todos = Array.isArray(res.data) ? res.data : [];
+      const todos = Array.isArray(res.data?.plomeros)
+        ? res.data.plomeros
+        : Array.isArray(res.data)
+          ? res.data
+          : [];
       // Excluir plomeros que ya no respondieron en solicitudes anteriores
       const excluidos = new Set(idsExcluidos);
       setPlomeros(excluidos.size > 0 ? todos.filter(p => !excluidos.has(p.id_plomero)) : todos);
@@ -522,10 +615,15 @@ function ScreenResultados({ problema, urgencia, idsExcluidos = [], onEnviar }) {
       const resp = await api.post("/solicitudes/", {
         descripcion_raw:           problema,
         solo_mujeres:              filtroGenero === "F",
-        localidad_evento:          "Sin especificar",
+        localidad_evento: useAuthStore.getState().user?.localidad || "Sin especificar",
         latitud_evento:            coords?.lat ?? -34.85,
         longitud_evento:           coords?.lon ?? -58.38,
-        ids_plomeros_seleccionados: seleccionados,  // ← los que el cliente eligió
+        ids_plomeros_seleccionados: seleccionados,
+        turnos_por_plomero: (() => {
+          const t = {};
+          seleccionados.forEach(id => { if (turnos[id]) t[String(id)] = turnos[id]; });
+          return t;
+        })(),
       });
       setSolicitud(resp.data);
       setEnviado(true);
@@ -632,7 +730,7 @@ function ScreenResultados({ problema, urgencia, idsExcluidos = [], onEnviar }) {
                 const isSelected = seleccionados.includes(p.id_plomero);
                 return (
                   <div key={p.id_plomero}
-                    onClick={() => toggle(p.id_plomero)}
+                    onClick={(e) => { if (!e.defaultPrevented) toggle(p.id_plomero); }}
                     style={{
                       background: isSelected ? "linear-gradient(145deg,#EFF6FF,#F0FDF4)" : "#fff",
                       border: isSelected ? "2px solid #3B82F6" : "2px solid #F1F5F9",
@@ -725,11 +823,13 @@ function ScreenResultados({ problema, urgencia, idsExcluidos = [], onEnviar }) {
 
                     {/* Turno: solo si NO es urgencia */}
                     {isSelected && !urgencia && (
-                      <TurnoSelector
-                        plomero={p}
-                        turnoActual={turnos[p.id_plomero]}
-                        onSelect={setTurno}
-                      />
+                      <div onClick={e => e.stopPropagation()}>
+                        <TurnoSelector
+                          plomero={p}
+                          turnoActual={turnos[p.id_plomero]}
+                          onSelect={setTurno}
+                        />
+                      </div>
                     )}
 
                     {/* Urgencia: mostrar disponibilidad inmediata */}
@@ -984,11 +1084,13 @@ function SolicitudCard({ h, onReSolicitar }) {
   const vencida = estado === "PENDIENTE" && mins > limite;
 
   const ESTADOS = [
-    { key: "PENDIENTE", label: "Solicitud enviada",       icon: "📡", desc: "Esperando que un profesional acepte" },
-    { key: "ACEPTADO",  label: "Trabajo aceptado",        icon: "✅", desc: "Un plomero aceptó tu solicitud" },
-    { key: "EN_CAMINO", label: "El plomero va en camino", icon: "🚗", desc: "Ya está yendo a tu domicilio" },
+    { key: "pendiente",              label: "Solicitud enviada",           icon: "📡", desc: "Esperando que un profesional acepte" },
+    { key: "en_progreso",            label: "Trabajo aceptado",            icon: "✅", desc: "Un profesional aceptó tu solicitud" },
+    { key: "en_camino",              label: "El profesional va en camino", icon: "🚗", desc: "Ya está yendo a tu domicilio" },
+    { key: "pendiente_calificacion", label: "Trabajo finalizado",          icon: "🏁", desc: "Podés calificar el servicio" },
   ];
-  const idxActual = ESTADOS.findIndex(e => e.key === estado);
+  const estadoNorm = (estado || "").toLowerCase();
+  const idxActual = ESTADOS.findIndex(e => e.key === estadoNorm);
 
   return (
     <div style={{ background: "#fff", borderRadius: "20px",
@@ -1111,40 +1213,45 @@ function SolicitudCard({ h, onReSolicitar }) {
         </div>
       )}
 
-      {h.plomero && (
-        <div style={{ background: "#F0FDF4", border: "1px solid #86EFAC",
-          borderRadius: "12px", padding: "14px 16px" }}>
+      {(h.id_plomero || h.nombre_plomero) && (
+        <div style={{ background: "linear-gradient(135deg,#F0FDF4,#ECFDF5)",
+          border: "1.5px solid #86EFAC", borderRadius: "14px", padding: "14px 16px" }}>
           <div style={{ fontFamily: "'DM Sans',sans-serif", fontWeight: "700",
             fontSize: "10px", color: "#15803D", textTransform: "uppercase",
-            letterSpacing: "0.6px", marginBottom: "10px" }}>Plomero asignado</div>
+            letterSpacing: "0.6px", marginBottom: "10px" }}>✅ Profesional asignado</div>
           <div style={{ display: "flex", gap: "12px", alignItems: "center" }}>
-            <Avatar src={h.plomero?.foto_perfil_path}
-              nombre={h.plomero?.nombre} apellido={h.plomero?.apellido} size={48} />
-            <div>
+            <Avatar
+              src={h.foto_plomero || h.plomero?.foto_perfil_path}
+              nombre={(h.nombre_plomero || h.plomero?.nombre || "P").split(" ")[0]}
+              apellido={(h.nombre_plomero || "").split(" ").slice(1).join(" ") || h.plomero?.apellido || ""}
+              size={52}
+            />
+            <div style={{ flex: 1 }}>
               <div style={{ fontFamily: "'DM Sans',sans-serif", fontWeight: "800",
-                fontSize: "15px", color: "#0F172A" }}>
-                {h.plomero?.nombre} {h.plomero?.apellido}
+                fontSize: "16px", color: "#0F172A" }}>
+                {h.nombre_plomero || (h.plomero ? `${h.plomero.nombre} ${h.plomero.apellido}` : "Profesional asignado")}
               </div>
-              <div style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "12px", color: "#64748B" }}>
-                📍 {h.plomero?.localidad}
+              <div style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "12px",
+                color: "#64748B", marginTop: "3px" }}>
+                📍 {h.localidad_plomero || h.plomero?.localidad || "—"}
               </div>
-              {h.plomero?.telefono && (
-                <a href={`tel:${h.plomero.telefono}`} style={{
-                  display: "inline-flex", alignItems: "center", gap: "5px",
-                  marginTop: "6px", background: "#fff",
-                  border: "1px solid #86EFAC", borderRadius: "7px",
-                  padding: "5px 10px", fontFamily: "'DM Sans',sans-serif",
-                  fontSize: "12px", color: "#15803D", fontWeight: "600",
-                  textDecoration: "none",
-                }}>📞 Llamar</a>
+              {h.turno_solicitado ? (
+                <div style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "13px",
+                  color: "#15803D", fontWeight: "700", marginTop: "6px",
+                  background: "#DCFCE7", borderRadius: "6px", padding: "4px 8px",
+                  display: "inline-block" }}>
+                  📅 {formatearTurno(h.turno_solicitado)}
+                </div>
+              ) : (
+                <div style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "12px",
+                  color: "#94A3B8", marginTop: "4px" }}>📅 Horario a confirmar</div>
               )}
             </div>
           </div>
         </div>
       )}
 
-      {/* Botón cancelar — para todas las solicitudes PENDIENTES */}
-      {estado === "PENDIENTE" && !vencida && (
+      {(estadoNorm === "pendiente" || estadoNorm === "en_progreso") && !vencida && (
         <CancelarSolicitudBtn idSolicitud={h.id_solicitud} />
       )}
     </div>
@@ -1239,7 +1346,7 @@ function ScreenMiSolicitud({ historial, loading, onNav, onReSolicitar }) {
   const activas = historial
     .filter(h => {
       const e = (h.estado || "").toLowerCase();
-      return e === "pendiente" || e === "aceptado";
+      return e === "pendiente" || e === "aceptado" || e === "en_progreso" || e === "pendiente_calificacion";
     })
     .sort((a, b) => new Date(b.fecha) - new Date(a.fecha));
 
@@ -1556,7 +1663,7 @@ function useSolicitudNotifs(token) {
       arr.forEach(s => {
         const prev = prevStates.current[s.id_solicitud];
         if (prev && prev !== s.estado) {
-          if (s.estado === "ACEPTADO") {
+          if (s.estado === "en_progreso" || s.estado === "ACEPTADO") {
             nuevas.push({
               id: Date.now() + s.id_solicitud,
               icon: "✅",

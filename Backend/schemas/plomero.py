@@ -22,7 +22,7 @@ class PlomeroBase(BaseModel):
 # ─────────────────────────────
 class PlomeroRequest(PlomeroBase):
     especialidad:      EspecialidadEnum
-    especialidades:    List[EspecialidadEnum] = Field(default_factory=list)
+    especialidades: List[str] = Field(default_factory=list)
     otra_especialidad: Optional[str] = None
     atiende_urgencias: bool
     matricula_gas:     bool
@@ -40,7 +40,7 @@ class PlomeroResponse(BaseModel):
     email:             EmailStr
     # telefono eliminado — reemplazado por mensajería interna
     especialidad: EspecialidadEnum | None = None
-    especialidades:    List[EspecialidadEnum] = Field(default_factory=list)
+    especialidades: List[str] = Field(default_factory=list)
     otra_especialidad: Optional[str]  = None
     genero:            str
     localidad:         str

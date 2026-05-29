@@ -1,7 +1,9 @@
 from fastapi import FastAPI
+from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from routers.chat_ws import router as chat_ws_router
 from database import Base, engine
+import os
 
 from routers import (
     auth_router,
@@ -11,7 +13,7 @@ from routers import (
     disponibilidad_router,
     calificaciones_routes,
 )
-from routers.mensajes_router import router as mensajes_router  # agregado
+from routers.mensajes_router import router as mensajes_router
 
 app = FastAPI(title="PlomerIA API")
 
@@ -30,6 +32,12 @@ app.add_middleware(
 # DB
 # ─────────────────────────────
 Base.metadata.create_all(bind=engine)
+
+# ─────────────────────────────
+# ARCHIVOS ESTÁTICOS — fotos de perfil
+# ─────────────────────────────
+os.makedirs("uploads/fotos", exist_ok=True)
+app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
 
 # ─────────────────────────────
 # PREFIX GLOBAL

@@ -2,6 +2,7 @@
 import { useState } from 'react'
 import api from '../services/api'
 import { useAuthStore } from '../store/authStore'
+import DireccionConMapa from '../components/DireccionConMapa'
 
 const LOCALIDADES = [
   "Adrogué","Burzaco","Claypole","Don Orione","Glew","José Mármol",
@@ -11,11 +12,11 @@ const LOCALIDADES = [
 ]
 
 export default function Registro({ onNav }) {
-  const setAuth  = useAuthStore((s) => s.setAuth);
+  const setAuth = useAuthStore((s) => s.setAuth);
 
   const [form, setForm] = useState({
     nombre: '', apellido: '', email: '', password: '', confirmar: '',
-    telefono: '', direccion: '', localidad: '',
+    direccion: '', localidad: '', latitud: null, longitud: null,
   });
   const [error,    setError]    = useState('')
   const [cargando, setCargando] = useState(false)
@@ -27,12 +28,14 @@ export default function Registro({ onNav }) {
     e.preventDefault()
     setError('')
 
-    if (form.password !== form.confirmar) {
+    if (form.password !== form.confirmar)
       return setError('Las contraseñas no coinciden')
-    }
-    if (form.password.length < 6) {
+    if (form.password.length < 6)
       return setError('La contraseña debe tener al menos 6 caracteres')
-    }
+    if (!form.direccion.trim())
+      return setError('Ingresá tu dirección')
+    if (!form.localidad)
+      return setError('Seleccioná tu localidad')
 
     setCargando(true)
     try {
@@ -41,9 +44,10 @@ export default function Registro({ onNav }) {
         apellido:  form.apellido,
         email:     form.email,
         password:  form.password,
-        telefono:  form.telefono,
         direccion: form.direccion,
         localidad: form.localidad,
+        latitud:   form.latitud,
+        longitud:  form.longitud,
         rol:       'cliente',
       })
 
@@ -52,9 +56,8 @@ export default function Registro({ onNav }) {
         nombre: res.data.nombre,
         rol:    'cliente',
       }
-      // Zustand persist guarda en localStorage automáticamente
       setAuth(res.data.access_token, usuario)
-      onNav('app') // App.jsx monta <HomeCliente> cuando view === "app"
+      onNav('app')
 
     } catch (err) {
       setError(err.response?.data?.detail || 'Error al registrar. Intentá de nuevo.')
@@ -107,40 +110,17 @@ export default function Registro({ onNav }) {
             </div>
           </div>
 
-          <div>
-            <label className="block text-[10px] font-black text-slate-400 mb-1 uppercase tracking-widest">
-              Teléfono
-            </label>
-            <input
-              required type="tel" placeholder="11 4523-8871"
-              value={form.telefono} onChange={set('telefono')}
-              className="w-full p-3 bg-slate-50 border border-slate-200 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
-            />
-          </div>
-
-          <div>
-            <label className="block text-[10px] font-black text-slate-400 mb-1 uppercase tracking-widest">
-              Dirección
-            </label>
-            <input
-              required type="text" placeholder="Av. Mitre 1234"
-              value={form.direccion} onChange={set('direccion')}
-              className="w-full p-3 bg-slate-50 border border-slate-200 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
-            />
-          </div>
-
-          <div>
-            <label className="block text-[10px] font-black text-slate-400 mb-1 uppercase tracking-widest">
-              Localidad
-            </label>
-            <select
-              required value={form.localidad} onChange={set('localidad')}
-              className="w-full p-3 bg-slate-50 border border-slate-200 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
-            >
-              <option value="">Seleccioná tu localidad</option>
-              {LOCALIDADES.map((l) => <option key={l} value={l}>{l}</option>)}
-            </select>
-          </div>
+          {/* Dirección con mapa */}
+          <DireccionConMapa
+            direccion={form.direccion}
+            localidad={form.localidad}
+            latitud={form.latitud}
+            longitud={form.longitud}
+            onDireccionChange={(v) => setForm((f) => ({ ...f, direccion: v }))}
+            onLocalidadChange={(v) => setForm((f) => ({ ...f, localidad: v }))}
+            onCoordsChange={(lat, lon) => setForm((f) => ({ ...f, latitud: lat, longitud: lon }))}
+            localidades={LOCALIDADES}
+          />
 
           <div>
             <label className="block text-[10px] font-black text-slate-400 mb-1 uppercase tracking-widest">

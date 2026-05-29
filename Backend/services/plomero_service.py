@@ -7,18 +7,10 @@ from typing import Optional
 from utils.seguridad import create_token, hash_password, verify_password
 from services.disponibilidad_service import guardar_agenda_inicial
 from repositories import plomero_repository
-from schemas.plomero import (
-    PlomeroResponse
-)
+from schemas.plomero import PlomeroResponse
 
-
-
-from utils.geolocalizacion import (
-    geocodificar
-)
-
+from utils.geolocalizacion import geocodificar
 from utils.email import enviar_reset_password
-
 from models.plomero import Plomero
 
 import secrets
@@ -31,21 +23,22 @@ RADIO_KM = 5.0
 # ─────────────────────────────
 
 def registrar_completo(
-    db: Session,
-    nombre: str,
-    apellido: str,
-    email: str,
-    password: str,
-    # telefono eliminado — reemplazado por mensajería interna
-    localidad: str,
-    especialidades: list[str],
+    db:                Session,
+    nombre:            str,
+    apellido:          str,
+    email:             str,
+    password:          str,
+    localidad:         str,
+    especialidades:    list[str],
     otra_especialidad: Optional[str],
-    genero: str,
+    genero:            str,
     atiende_urgencias: bool,
-    matricula_gas: bool,
-    agenda: dict,
-    foto_path: Optional[str],
-    direccion: Optional[str] = None,   # opcional para compatibilidad futura
+    matricula_gas:     bool,
+    agenda:            dict,
+    foto_path:         Optional[str],
+    direccion:         Optional[str]  = None,
+    latitud:           Optional[float] = None,  # coordenadas del mapa
+    longitud:          Optional[float] = None,  # coordenadas del mapa
 ):
     if plomero_repository.buscar_por_email(db, email):
         raise HTTPException(
@@ -53,7 +46,9 @@ def registrar_completo(
             detail="El email ya está registrado"
         )
 
-    latitud, longitud = geocodificar(direccion or localidad, localidad)
+    # Usar coordenadas del mapa si vienen — si no, geocodificar
+    if latitud is None or longitud is None:
+        latitud, longitud = geocodificar(direccion or localidad, localidad)
 
     esp_final = []
     otra_custom = otra_especialidad
@@ -71,7 +66,6 @@ def registrar_completo(
         nombre            = nombre,
         apellido          = apellido,
         email             = email,
-        # telefono eliminado
         genero            = genero,
         localidad         = localidad,
         latitud           = latitud,
@@ -80,7 +74,7 @@ def registrar_completo(
         matricula_gas     = matricula_gas,
         password_hash     = hash_password(password),
         disponible_ahora  = True,
-        puntuacion        = 0.0,
+        puntuacion        = 5.0,   # puntuación inicial 5.0
         total_trabajos    = 0,
         foto_perfil_path  = foto_path,
         agenda            = agenda if agenda else None,
@@ -101,23 +95,17 @@ def registrar_completo(
         "nombre":       plomero.nombre,
     }
 
-def obtener_mi_perfil(
-    db: Session,
-    id_plomero: int
-) -> PlomeroResponse:
 
-    plomero = plomero_repository.buscar_por_id(
-        db,
-        id_plomero
-    )
+# ─────────────────────────────
+# PERFIL
+# ─────────────────────────────
 
+def obtener_mi_perfil(db: Session, id_plomero: int) -> PlomeroResponse:
+    plomero = plomero_repository.buscar_por_id(db, id_plomero)
     if not plomero:
-        raise HTTPException(
-            status_code=404,
-            detail="Plomero no encontrado"
-        )
-
+        raise HTTPException(status_code=404, detail="Plomero no encontrado")
     return PlomeroResponse.model_validate(plomero)
+
 
 # ─────────────────────────────
 # SUGERIR
@@ -129,11 +117,11 @@ FRANJA_INICIO = {"manana": 8, "tarde": 13, "noche": 18}
 
 
 def sugerir(
-    db:              Session,
-    descripcion:     str,
-    solo_mujeres:    bool,
-    lat_usuario:     float | None,
-    lon_usuario:     float | None,
+    db:               Session,
+    descripcion:      str,
+    solo_mujeres:     bool,
+    lat_usuario:      float | None,
+    lon_usuario:      float | None,
     urgencia_forzada: bool,
 ):
     from services import ia_service
@@ -197,7 +185,12 @@ def sugerir(
                     plomeros.append(p)
                     ids_ya.add(p.id_plomero)
     else:
-        plomeros = plomero_repository.filtrar(db, genero=genero_filtro, lat_usuario=lat_usuario, lon_usuario=lon_usuario)
+        plomeros = plomero_repository.filtrar(
+            db,
+            genero      = genero_filtro,
+            lat_usuario = lat_usuario,
+            lon_usuario = lon_usuario,
+        )
 
     vistos, unicos = set(), []
     for p in plomeros:
@@ -205,7 +198,8 @@ def sugerir(
             vistos.add(p.id_plomero)
             unicos.append(p)
 
-    resultado = sorted(unicos, key=lambda p: (-relevancia(p), -p.puntuacion, dist(p)))[:5]
+    # Ordenar: primero relevancia, después distancia, después puntuación
+    resultado = sorted(unicos, key=lambda p: (-relevancia(p), dist(p), -p.puntuacion))[:5]
 
     return [
         {
@@ -228,7 +222,8 @@ def sugerir(
         }
         for p in resultado
     ]
-    
+
+
 # ─────────────────────────────
 # DISPONIBILIDAD
 # ─────────────────────────────
@@ -239,10 +234,6 @@ def cambiar_disponibilidad(db: Session, id_plomero: int, disponible: bool):
         raise HTTPException(status_code=404, detail="Plomero no encontrado")
     return {"mensaje": "Disponibilidad actualizada", "disponible_ahora": plomero.disponible_ahora}
 
-
-# ─────────────────────────────
-# PERFIL
-# ─────────────────────────────
 
 def obtener_por_id(db: Session, id: int):
     plomero = plomero_repository.buscar_por_id(db, id)
