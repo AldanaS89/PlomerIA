@@ -240,3 +240,24 @@ def obtener_por_id(db: Session, id: int):
     if not plomero:
         raise HTTPException(status_code=404, detail="Plomero no encontrado")
     return PlomeroResponse.model_validate(plomero)
+
+
+def buscar_manual(
+    db: Session,
+    localidad: str | None = None,
+    genero: str | None = None,
+    especialidad: str | None = None,
+    atiende_urgencias: bool | None = None,
+    disponible_ahora: bool | None = None,
+):
+
+    return plomero_repository.obtener_filtrados(
+        db=db,
+        localidad=localidad,
+        genero=genero,
+        especialidades=especialidad,
+        atiende_urgencias=atiende_urgencias,
+        disponible_ahora=disponible_ahora,
+    )
+
+   

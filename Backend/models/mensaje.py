@@ -5,7 +5,7 @@ from database import Base
 class Mensaje(Base):
     __tablename__ = "mensajes"
 
-    id = Column(Integer, primary_key=True)
+    id_mensaje = Column(Integer, primary_key=True)
     id_solicitud = Column(Integer, ForeignKey("solicitudes.id_solicitud"))
 
     emisor_id = Column(Integer)

@@ -89,16 +89,23 @@ def obtener_mi_perfil(
 
 
 # ── BUSCAR ────────────────────────────────────────────────────────────────────
-@router.get("/buscar", response_model=list[PlomeroResponse])
+@router.get("/buscar")
 def buscar(
-    localidad:         Optional[str]  = None,
-    genero:            Optional[str]  = None,
-    especialidad:      Optional[str]  = None,
+    localidad: Optional[str] = None,
+    genero: Optional[str] = None,
+    especialidad: Optional[str] = None,
     atiende_urgencias: Optional[bool] = None,
+    disponible_ahora: Optional[bool] = None,
     db: Session = Depends(get_db),
 ):
-    return plomero_service.buscar(db, localidad, genero, especialidad, atiende_urgencias)
-
+    return plomero_service.buscar_manual(
+        db,
+        localidad,
+        genero,
+        especialidad,
+        atiende_urgencias,
+        disponible_ahora,
+    )
 
 # ── SUGERIR — con validación de descripción ───────────────────────────────────
 @router.post("/sugerir")

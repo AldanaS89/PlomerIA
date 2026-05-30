@@ -1,3 +1,4 @@
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 from utils.geolocalizacion import distancia_km
 from models.plomero import Plomero
@@ -91,23 +92,42 @@ def buscar_para_solicitud(
     return plomeros[:limite]
 
 def obtener_filtrados(
-    db:                Session,
-    localidad          = None,
-    genero             = None,
-    especialidades     = None,
-    atiende_urgencias  = None,
-) -> list[Plomero]:
+    db,
+    localidad=None,
+    genero=None,
+    especialidades=None,
+    atiende_urgencias=None,
+    disponible_ahora=None,
+):
     query = db.query(Plomero)
+
     if localidad:
-        query = query.filter(Plomero.localidad == localidad)
+        query = query.filter(
+            func.lower(Plomero.localidad)
+            == localidad.lower()
+    )
+
     if genero:
         query = query.filter(Plomero.genero == genero)
-    if especialidades:
-        query = query.filter(Plomero.especialidades.contains([especialidades]))
-    if atiende_urgencias is not None:
-        query = query.filter(Plomero.atiende_urgencias == atiende_urgencias)
-    return query.all()
 
+    if especialidades:
+        query = query.filter(
+            Plomero.especialidades.contains([especialidades.upper])
+        )
+
+    if atiende_urgencias is not None:
+        query = query.filter(
+            Plomero.atiende_urgencias == atiende_urgencias
+        )
+
+    if disponible_ahora is not None:
+        query = query.filter(
+            Plomero.disponible_ahora == disponible_ahora
+        )
+
+    return query.order_by(
+        Plomero.puntuacion.desc()
+    ).all()
 def filtrar(
     db:               Session,
     genero:           Optional[str]   = None,
