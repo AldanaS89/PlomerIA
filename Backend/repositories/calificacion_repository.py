@@ -27,19 +27,28 @@ def registrar_calificacion_de_trabajo(
     return nueva
 
 
-def calcular_promedio_puntuacion(db: Session, id_plomero: int) -> float:
-    """
-    Recalcula el promedio real de todas las calificaciones del plomero.
-    Se llama después de cada nueva calificación.
-    """
-    calificaciones = db.query(Calificacion).filter(
-        Calificacion.id_plomero == id_plomero
-    ).all()
-    if not calificaciones:
-        return 0.0
-    return round(
-        sum(c.estrellas for c in calificaciones) / len(calificaciones), 1
+def calcular_promedio_puntuacion(
+    db: Session,
+    id_plomero: int
+) -> float:
+
+    calificaciones = (
+        db.query(Calificacion)
+        .filter(Calificacion.id_plomero == id_plomero)
+        .all()
     )
+
+    if not calificaciones:
+        return 5.0
+
+    suma = 5  # reputación inicial
+    cantidad = 1 # cuenta como una valoración base
+
+    for c in calificaciones:
+        suma += c.estrellas
+        cantidad += 1
+
+    return round(suma / cantidad, 2)
 
 
 def cliente_ya_califico_trabajo(

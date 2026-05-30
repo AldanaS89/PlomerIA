@@ -69,22 +69,27 @@ def registrar_calificacion_post_servicio(
     )
 
     # 5 — Recalcular puntuación e incrementar total_trabajos
-    nuevo_promedio = calificacion_repository.calcular_promedio_puntuacion(
-        db, solicitud.id_plomero
-    )
     plomero = plomero_repository.buscar_por_id(db, solicitud.id_plomero)
     if plomero:
-        # Si no hay calificaciones aún, mantener la puntuación actual
-        puntuacion_final = nuevo_promedio if nuevo_promedio > 0 else plomero.puntuacion
+        trabajos_anteriores  = plomero.total_trabajos  # 0 para plomeros nuevos
+
+    # Promedio ponderado:
+    # Los 5 puntos iniciales cuentan como 1 trabajo base
+    # Entonces el denominador es: trabajos_reales + 1 (base) + 1 (nuevo) = trabajos + 2
+        nueva_puntuacion = calificacion_repository.calcular_promedio_puntuacion(
+            db,
+            solicitud.id_plomero
+        )
+
         plomero_repository.actualizar_puntuacion(
             db,
             solicitud.id_plomero,
-            puntuacion_final,
-            plomero.total_trabajos + 1
+            nueva_puntuacion,
+            trabajos_anteriores + 1
         )
 
     return {
         "mensaje":   "Calificación registrada correctamente",
-        "promedio":  nuevo_promedio,
+        "promedio":  round(nueva_puntuacion, 2),
         "estrellas": estrellas,
     }
