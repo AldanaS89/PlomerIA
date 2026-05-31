@@ -7,13 +7,23 @@ import enum
 
 
 class EstadoSolicitud(enum.Enum):
-    PENDIENTE              = "pendiente"
-    ASIGNADA               = "asignada"
-    EN_PROGRESO            = "en_progreso"       # plomero aceptó
-    EN_CAMINO              = "en_camino"          # plomero confirmó que va
-    PENDIENTE_CALIFICACION = "pendiente_calificacion"  # trabajo terminado
-    COMPLETADA             = "completada"          # calificado
-    CANCELADA              = "cancelada"
+    # 🟡 inicial
+    PENDIENTE = "pendiente"
+    ASIGNADA = "asignada"
+
+    # 🔵 ejecución
+    EN_PROGRESO = "en_progreso"
+    EN_CAMINO = "en_camino"
+
+    # 🟣 final exitoso
+    PENDIENTE_CALIFICACION = "pendiente_calificacion"
+    COMPLETADA = "completada"
+
+    # 🔴 final definitivo
+    CANCELADA = "cancelada"
+
+    # 🟠 flujo interno del sistema (CLAVE)
+    REASIGNACION_PENDIENTE = "reasignacion_pendiente"
 
 
 class Solicitud(Base):
@@ -34,6 +44,8 @@ class Solicitud(Base):
     presupuesto_max = Column(Float,  nullable=True)
 
     ids_plomeros_sugeridos = Column(String, nullable=True)
+    ids_plomeros_contactados = Column(String, nullable=True)
+    ids_plomeros_activos     = Column(String, nullable=True)
 
     localidad_evento = Column(String, nullable=False)
     latitud_evento   = Column(Float,  nullable=True)
@@ -41,6 +53,9 @@ class Solicitud(Base):
 
     turno_solicitado = Column(String, nullable=True)
     fecha_trabajo = Column(DateTime, nullable=True)
+    
+    fecha_ultimo_envio = Column(DateTime, nullable=True)
+    intentos_reasignacion = Column(Integer, default=0)
 
     estado = Column(Enum(EstadoSolicitud), default=EstadoSolicitud.PENDIENTE)
     fecha  = Column(DateTime, default=datetime.now)

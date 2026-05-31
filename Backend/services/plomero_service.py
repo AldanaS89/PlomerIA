@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from sqlalchemy.orm import Session
 from fastapi import HTTPException
@@ -9,15 +9,126 @@ from services.disponibilidad_service import guardar_agenda_inicial
 from repositories import plomero_repository
 from schemas.plomero import PlomeroResponse
 
-from utils.geolocalizacion import geocodificar
+from utils.geolocalizacion import distancia_km, geocodificar
 from utils.email import enviar_reset_password
 from models.plomero import Plomero
 
 import secrets
 
 RADIO_KM = 5.0
+DIAS_ES = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"]
+FRANJAS = ["manana", "tarde", "noche"]
+# ------- Nueva busqueda
+def _keys_proximos_dias(dias: int) -> set[str]:
+    """
+    Genera las claves de agenda para los próximos N días
+    a partir de ahora. Por ejemplo a las 23hs del lunes:
+    - dia 0 (hoy): solo "noche" si quedan horas
+    - dia 1 (mañana): manana, tarde, noche
+    - dia 2 (pasado): manana, tarde, noche
+    """
+    ahora  = datetime.now()
+    claves = set()
 
+    for offset in range(dias + 1):
+        fecha = ahora + timedelta(days=offset)
+        dia   = DIAS_ES[fecha.weekday()]
 
+        for franja in FRANJAS:
+            # Para hoy solo incluir franjas futuras
+            if offset == 0:
+                hora_franja = {"manana": 8, "tarde": 13, "noche": 18}[franja]
+                if ahora.hour >= hora_franja + 3:  # la franja ya pasó
+                    continue
+            claves.add(f"{dia}_{franja}")
+
+    return claves
+
+def _tiene_slot_en_claves(plomero, claves: set[str]) -> bool:
+    """Verifica si el plomero tiene al menos un slot disponible en las claves dadas."""
+    if not plomero.agenda:
+        return False
+    return any(plomero.agenda.get(k) for k in claves)
+
+def buscar_urgencia_con_fallback(
+    db:           Session,
+    especialidad: str,
+    lat:          float | None,
+    lon:          float | None,
+    genero:       str | None,
+    limite:       int = 5,
+) -> list:
+    """
+    Búsqueda para urgencias con 3 niveles de fallback.
+    Nunca devuelve lista vacía si hay plomeros con atiende_urgencias=True.
+    """
+
+    def dist(p):
+        if lat and lon and p.latitud and p.longitud:
+            return distancia_km(lat, lon, p.latitud, p.longitud)
+        return 9999
+
+    def ordenar(lista):
+        return sorted(lista, key=lambda p: (dist(p), -p.puntuacion))
+
+    # ── NIVEL 1 — hoy y mañana, disponibles ahora, radio 5km ─────────────
+    claves_2dias = _keys_proximos_dias(1)  # hoy + mañana
+
+    nivel1 = plomero_repository.buscar_para_solicitud(
+        db,
+        especialidades    = especialidad,
+        lat_usuario       = lat,
+        lon_usuario       = lon,
+        atiende_urgencias = True,
+        genero            = genero,
+        radio_km          = 5.0,
+        limite            = 50,  # traemos más para filtrar por agenda
+    )
+    nivel1 = [p for p in nivel1 if _tiene_slot_en_claves(p, claves_2dias) or p.disponible_ahora]
+
+    if len(nivel1) >= 1:
+        return ordenar(nivel1)[:limite]
+
+    # ── NIVEL 2 — hoy, mañana y pasado, sin exigir disponible_ahora, radio 10km ──
+    claves_3dias = _keys_proximos_dias(2)  # hoy + mañana + pasado
+
+    nivel2 = plomero_repository.buscar_para_solicitud(
+        db,
+        especialidades    = especialidad,
+        lat_usuario       = lat,
+        lon_usuario       = lon,
+        atiende_urgencias = True,
+        genero            = genero,
+        radio_km          = 10.0,
+        limite            = 50,
+    )
+    # No exigimos disponible_ahora — puede estar durmiendo
+    nivel2 = [p for p in nivel2 if _tiene_slot_en_claves(p, claves_3dias)]
+
+    if len(nivel2) >= 1:
+        return ordenar(nivel2)[:limite]
+
+    # ── NIVEL 3 — cualquiera que atienda urgencias, sin importar agenda ni radio ──
+    # Último recurso: que el plomero decida si puede ir
+    nivel3 = plomero_repository.buscar_para_solicitud(
+        db,
+        atiende_urgencias = True,
+        genero            = genero,
+        radio_km          = None,   # sin límite de radio
+        limite            = 50,
+    )
+
+    if nivel3:
+        return ordenar(nivel3)[:limite]
+
+    # ── NIVEL 4 — cualquier plomero, sin ningún filtro ───────────────────
+    # Nunca devolver lista vacía
+    todos = plomero_repository.buscar_para_solicitud(
+        db,
+        radio_km = None,
+        limite   = limite,
+    )
+    return ordenar(todos)[:limite]
 # ─────────────────────────────
 # REGISTRO
 # ─────────────────────────────
@@ -136,16 +247,24 @@ def sugerir(
     hora_actual = ahora.hour
     dia_hoy     = DIAS_ES[ahora.weekday()]
     dia_manana  = DIAS_ES[(ahora.weekday() + 1) % 7]
+    dia_pasado  = DIAS_ES[(ahora.weekday() + 2) % 7]  # ← nuevo
+
     franjas_hoy = [f for f in FRANJAS if FRANJA_INICIO[f] > hora_actual + 1]
+
+    # Claves para hoy + mañana (nivel 1)
     keys_urgencia = (
         {f"{dia_hoy}_{f}" for f in franjas_hoy} |
-        {f"{dia_manana}_{f}" for f in ["manana", "tarde"]}
+        {f"{dia_manana}_{f}" for f in FRANJAS}   # ← mañana todas las franjas, no solo manana/tarde
     )
 
-    def tiene_slot(p):
+    # Claves para hoy + mañana + pasado mañana (nivel 2)
+    keys_3dias = keys_urgencia | {f"{dia_pasado}_{f}" for f in FRANJAS}
+
+    def tiene_slot(p, claves):
+        """Verifica si el plomero tiene slot en las claves dadas."""
         if not p.agenda:
             return p.disponible_ahora
-        return any(p.agenda.get(k) for k in keys_urgencia)
+        return any(p.agenda.get(k) for k in claves)
 
     def dist(p):
         if lat_usuario and lon_usuario and p.latitud and p.longitud:
@@ -160,7 +279,13 @@ def sugerir(
             score += 5
         return score
 
+    # ─────────────────────────────────────────────────────────
+    # URGENTE — 4 niveles de fallback, nunca devuelve vacío
+    # ─────────────────────────────────────────────────────────
     if es_urgente:
+
+        # NIVEL 1 — radio progresivo 5→10→20→50km
+        # Exige: atiende_urgencias + disponible_ahora + slot hoy o mañana
         plomeros = []
         for radio in [5, 10, 20, 50, None]:
             candidatos = plomero_repository.filtrar(
@@ -172,26 +297,70 @@ def sugerir(
                 lon_usuario       = lon_usuario if radio else None,
                 radio_km          = radio,
             )
-            candidatos = [p for p in candidatos if tiene_slot(p)]
+            candidatos = [p for p in candidatos if tiene_slot(p, keys_urgencia)]
             if len(candidatos) >= 5:
                 plomeros = candidatos
                 break
-            plomeros = candidatos
+            if candidatos:
+                plomeros = candidatos  # guardamos lo que hay aunque sea poco
 
-        if len(plomeros) < 5:
-            ids_ya = {p.id_plomero for p in plomeros}
-            for p in plomero_repository.filtrar(db, genero=genero_filtro, solo_disponibles=True):
-                if p.id_plomero not in ids_ya and tiene_slot(p):
+        # NIVEL 2 — amplía a pasado mañana, NO exige disponible_ahora
+        # Puede estar durmiendo — le mandamos solicitud igual
+        if not plomeros:
+            for radio in [5, 10, 20, None]:
+                candidatos = plomero_repository.filtrar(
+                    db,
+                    genero            = genero_filtro,
+                    atiende_urgencias = True,
+                    solo_disponibles  = False,   # ← no exigir disponible ahora
+                    lat_usuario       = lat_usuario if radio else None,
+                    lon_usuario       = lon_usuario if radio else None,
+                    radio_km          = radio,
+                )
+                candidatos = [p for p in candidatos if tiene_slot(p, keys_3dias)]
+                if candidatos:
+                    plomeros = candidatos
+                    break
+
+        # NIVEL 3 — cualquiera que atienda urgencias, sin importar agenda ni radio
+        # El plomero decide si puede ir
+        if not plomeros:
+            plomeros = plomero_repository.filtrar(
+                db,
+                genero            = genero_filtro,
+                atiende_urgencias = True,
+                solo_disponibles  = False,
+            )
+
+        # NIVEL 4 — cualquier plomero, sin ningún filtro
+        # Nunca devolver vacío
+        if not plomeros:
+            ids_ya = set()
+            for p in plomero_repository.filtrar(db, genero=genero_filtro, solo_disponibles=False):
+                if p.id_plomero not in ids_ya:
                     plomeros.append(p)
                     ids_ya.add(p.id_plomero)
-    else:
-        plomeros = plomero_repository.filtrar(
-            db,
-            genero      = genero_filtro,
-            lat_usuario = lat_usuario,
-            lon_usuario = lon_usuario,
-        )
 
+    # ─────────────────────────────────────────────────────────
+    # NO URGENTE — búsqueda normal con radio progresivo
+    # ─────────────────────────────────────────────────────────
+    else:
+        # Radio progresivo: 5 → 15 → sin límite
+        plomeros = []
+        for radio in [5.0, 15.0, None]:
+            plomeros = plomero_repository.filtrar(
+                db,
+                genero      = genero_filtro,
+                lat_usuario = lat_usuario,
+                lon_usuario = lon_usuario,
+                radio_km    = radio,
+            )
+            if plomeros:
+                break
+
+    # ─────────────────────────────────────────────────────────
+    # DEDUPLICAR Y ORDENAR
+    # ─────────────────────────────────────────────────────────
     vistos, unicos = set(), []
     for p in plomeros:
         if p.id_plomero not in vistos:
@@ -199,8 +368,14 @@ def sugerir(
             unicos.append(p)
 
     # Ordenar: primero relevancia, después distancia, después puntuación
-    resultado = sorted(unicos, key=lambda p: (-relevancia(p), dist(p), -p.puntuacion))[:5]
+    resultado = sorted(
+        unicos,
+        key=lambda p: (-relevancia(p), dist(p), -p.puntuacion)
+    )[:5]
 
+    # ─────────────────────────────────────────────────────────
+    # FORMATEAR RESPUESTA
+    # ─────────────────────────────────────────────────────────
     return [
         {
             "id_plomero":        p.id_plomero,
@@ -218,7 +393,11 @@ def sugerir(
             "distancia_km":      round(dist(p), 2) if dist(p) < 9999 else None,
             "etiqueta_ia":       etiqueta,
             "urgencia_ia":       urgencia_ia,
-            "agenda":            {k: True for k in keys_urgencia if p.agenda.get(k)} if es_urgente and p.agenda else p.agenda or {},
+            "agenda":            (
+                {k: True for k in keys_urgencia if p.agenda and p.agenda.get(k)}
+                if es_urgente and p.agenda
+                else p.agenda or {}
+            ),
         }
         for p in resultado
     ]

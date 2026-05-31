@@ -4,7 +4,7 @@ cargar_plomeros.py
 Importa los 100 plomeros de plomeros_enriquecido.json a la base de datos.
 
 Uso (desde la carpeta Backend/):
-    python scripts\cargar_plomeros.py
+    python scripts/cargar_plomeros.py
 
 Podés correrlo varias veces — si el email ya existe, lo saltea.
 """

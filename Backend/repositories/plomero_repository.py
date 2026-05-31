@@ -57,36 +57,47 @@ def actualizar_password(db: Session, id: int, nuevo_hash: str) -> None:
         db.commit()
 
 def buscar_para_solicitud(
-    db:                Session,
-    especialidades:    Optional[str]   = None,
-    lat_usuario:       Optional[float] = None,
-    lon_usuario:       Optional[float] = None,
-    atiende_urgencias: bool            = False,
-    genero:            Optional[str]   = None,
-    radio_km:          Optional[float] = None,
-    limite:            int             = 5,
+    db: Session,
+    especialidades: Optional[str] = None,
+    lat_usuario: Optional[float] = None,
+    lon_usuario: Optional[float] = None,
+    atiende_urgencias: bool = False,
+    genero: Optional[str] = None,
+    radio_km: Optional[float] = None,
+    solo_disponibles: bool = True,
+    limite: int = 5,
+    excluir_ids: Optional[set[str]] = None,   # 👈 NUEVO
 ) -> list[Plomero]:
-    """
-    Busca plomeros disponibles filtrando por especialidad, urgencia,
-    género y radio de distancia. Ordenados por puntuación descendente.
-    """
-    query = db.query(Plomero).filter(Plomero.disponible_ahora == True)
+
+    query = db.query(Plomero)
+
+    if solo_disponibles:
+        query = query.filter(Plomero.disponible_ahora == True)
 
     if especialidades:
         query = query.filter(Plomero.especialidades.contains([especialidades]))
+
     if atiende_urgencias:
         query = query.filter(Plomero.atiende_urgencias == True)
+
     if genero and genero != "todos":
         query = query.filter(Plomero.genero == genero)
 
     plomeros = query.order_by(Plomero.puntuacion.desc()).all()
 
-    # Filtrar por radio si se proveen coordenadas
+    # ─── filtro geográfico ─────────────────────────────
     if lat_usuario is not None and lon_usuario is not None and radio_km is not None:
         plomeros = [
             p for p in plomeros
             if p.latitud and p.longitud and
             distancia_km(lat_usuario, lon_usuario, p.latitud, p.longitud) <= radio_km
+        ]
+
+    # ─── EXCLUSIÓN MARKETPLACE (CLAVE) ────────────────
+    if excluir_ids:
+        plomeros = [
+            p for p in plomeros
+            if str(p.id_plomero) not in excluir_ids
         ]
 
     return plomeros[:limite]
