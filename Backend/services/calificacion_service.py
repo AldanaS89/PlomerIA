@@ -71,7 +71,7 @@ def registrar_calificacion_post_servicio(
     # 5 — Recalcular puntuación e incrementar total_trabajos
     plomero = plomero_repository.buscar_por_id(db, solicitud.id_plomero)
     if plomero:
-        trabajos_anteriores  = plomero.total_trabajos  # 0 para plomeros nuevos
+        trabajos_anteriores  = plomero.total_trabajos or 0  # 0 para plomeros nuevos
 
     # Promedio ponderado:
     # Los 5 puntos iniciales cuentan como 1 trabajo base

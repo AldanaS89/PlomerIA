@@ -113,7 +113,12 @@ def _to_response(s) -> dict:
         "longitud_evento":       s.longitud_evento,
         "etiqueta_ia":           s.etiqueta_ia,
         "urgencia_ia":           s.urgencia_ia,
-        "turno_solicitado":      s.turno_solicitado,
+        "turno_solicitado": s.turno_solicitado,
+        "fecha_trabajo": (
+            s.fecha_trabajo.isoformat()
+            if s.fecha_trabajo
+            else None
+        ),
         "presupuesto_min":       s.presupuesto_min,
         "presupuesto_max":       s.presupuesto_max,
         "ids_plomeros_sugeridos": s.ids_plomeros_sugeridos,
@@ -121,6 +126,8 @@ def _to_response(s) -> dict:
         "nombre_plomero":        None,
         "foto_plomero":          None,
         "localidad_plomero":     None,
+        # Datos del cliente
+        "nombre_cliente":        None,
         # Dirección del cliente (solo visible cuando plomero aceptó)
         "direccion_cliente":     None,
         "plomeros_sugeridos_detallados": [],
@@ -131,6 +138,10 @@ def _to_response(s) -> dict:
         result["nombre_plomero"]    = f"{s.plomero.nombre} {s.plomero.apellido}"
         result["foto_plomero"]      = s.plomero.foto_perfil_path
         result["localidad_plomero"] = s.plomero.localidad
+
+    # Nombre del cliente siempre visible para el plomero
+    if s.usuario:
+        result["nombre_cliente"] = f"{s.usuario.nombre} {s.usuario.apellido}"
 
     # Dirección del cliente — solo si el plomero ya aceptó
     ESTADOS_CON_DIRECCION = {
@@ -277,14 +288,100 @@ def aceptar(db: Session, id_solicitud: int, id_plomero: int):
 
 def marcar_en_camino(db: Session, id_solicitud: int, id_plomero: int):
     solicitud = solicitud_repository.obtener_por_id(db, id_solicitud)
+
+    if not solicitud:
+        raise HTTPException(status_code=404, detail="No encontrada")
+
+    if solicitud.id_plomero != id_plomero:
+        raise HTTPException(status_code=403, detail="No autorizado")
+
+    if solicitud.estado != EstadoSolicitud.EN_PROGRESO:
+        raise HTTPException(status_code=400, detail="No está en progreso")
+
+    # Solo puede marcar EN CAMINO el día del trabajo
+    if solicitud.fecha_trabajo:
+        if solicitud.fecha_trabajo.date() != datetime.now().date():
+            raise HTTPException(
+                status_code=400,
+                detail="Solo podés marcar EN CAMINO el día del trabajo"
+            )
+
+    s = solicitud_repository.cambiar_estado(
+        db,
+        id_solicitud,
+        EstadoSolicitud.EN_CAMINO
+    )
+
+    return _to_response(s)
+
+
+# ─────────────────────────────────────────────
+# RECHAZAR
+# ─────────────────────────────────────────────
+
+def rechazar(db: Session, id_solicitud: int, id_plomero: int):
+    solicitud = solicitud_repository.obtener_por_id(db, id_solicitud)
     if not solicitud:
         raise HTTPException(status_code=404, detail="No encontrada")
     if solicitud.id_plomero != id_plomero:
         raise HTTPException(status_code=403, detail="No autorizado")
+    if solicitud.estado not in (EstadoSolicitud.PENDIENTE, EstadoSolicitud.EN_PROGRESO):
+        raise HTTPException(status_code=400, detail="No se puede rechazar en este estado")
+
+    solicitud_repository.asignar_plomero(db, id_solicitud, None)
+    s = solicitud_repository.cambiar_estado(db, id_solicitud, EstadoSolicitud.PENDIENTE)
+    return _to_response(s)
+
+
+# ─────────────────────────────────────────────
+# ACEPTAR
+# ─────────────────────────────────────────────
+
+def aceptar(db: Session, id_solicitud: int, id_plomero: int):
+    solicitud = solicitud_repository.obtener_por_id(db, id_solicitud)
+    if not solicitud:
+        raise HTTPException(status_code=404, detail="No encontrada")
+    if solicitud.estado != EstadoSolicitud.PENDIENTE:
+        raise HTTPException(status_code=400, detail="La solicitud ya no está disponible")
+
+    solicitud_repository.asignar_plomero(db, id_solicitud, id_plomero)
+    _marcar_bloque_ocupado(db, id_plomero, solicitud.fecha)
+    _resetear_cancelaciones_plomero(db, id_plomero)
+
+    s = solicitud_repository.cambiar_estado(db, id_solicitud, EstadoSolicitud.EN_PROGRESO)
+    return _to_response(s)
+
+
+# ─────────────────────────────────────────────
+# EN CAMINO
+# ─────────────────────────────────────────────
+
+def marcar_en_camino(db: Session, id_solicitud: int, id_plomero: int):
+    solicitud = solicitud_repository.obtener_por_id(db, id_solicitud)
+
+    if not solicitud:
+        raise HTTPException(status_code=404, detail="No encontrada")
+
+    if solicitud.id_plomero != id_plomero:
+        raise HTTPException(status_code=403, detail="No autorizado")
+
     if solicitud.estado != EstadoSolicitud.EN_PROGRESO:
         raise HTTPException(status_code=400, detail="No está en progreso")
 
-    s = solicitud_repository.cambiar_estado(db, id_solicitud, EstadoSolicitud.EN_CAMINO)
+    # Solo puede marcar EN CAMINO el día del trabajo
+    if solicitud.fecha_trabajo:
+        if solicitud.fecha_trabajo.date() != datetime.now().date():
+            raise HTTPException(
+                status_code=400,
+                detail="Solo podés marcar EN CAMINO el día del trabajo"
+            )
+
+    s = solicitud_repository.cambiar_estado(
+        db,
+        id_solicitud,
+        EstadoSolicitud.EN_CAMINO
+    )
+
     return _to_response(s)
 
 
@@ -310,17 +407,91 @@ def rechazar(db: Session, id_solicitud: int, id_plomero: int):
 # COMPLETAR
 # ─────────────────────────────────────────────
 
-def completar(db: Session, id_solicitud: int, id_plomero: int):
+def marcar_en_camino(db: Session, id_solicitud: int, id_plomero: int):
+    solicitud = solicitud_repository.obtener_por_id(db, id_solicitud)
+
+    if not solicitud:
+        raise HTTPException(status_code=404, detail="No encontrada")
+
+    if solicitud.id_plomero != id_plomero:
+        raise HTTPException(status_code=403, detail="No autorizado")
+
+    if solicitud.estado != EstadoSolicitud.EN_PROGRESO:
+        raise HTTPException(status_code=400, detail="No está en progreso")
+
+    # Solo puede marcar EN CAMINO el día del trabajo
+    if solicitud.fecha_trabajo:
+        if solicitud.fecha_trabajo.date() != datetime.now().date():
+            raise HTTPException(
+                status_code=400,
+                detail="Solo podés marcar EN CAMINO el día del trabajo"
+            )
+
+    s = solicitud_repository.cambiar_estado(
+        db,
+        id_solicitud,
+        EstadoSolicitud.EN_CAMINO
+    )
+
+    return _to_response(s)
+
+
+# ─────────────────────────────────────────────
+# CANCELAR — con penalizaciones
+# ─────────────────────────────────────────────
+
+def cancelar(db: Session, id_solicitud: int, id_usuario: int):
+    """Cancelación por parte del CLIENTE."""
+    solicitud = solicitud_repository.obtener_por_id(db, id_solicitud)
+    if not solicitud:
+        raise HTTPException(status_code=404, detail="No encontrada")
+    if solicitud.id_usuario != id_usuario:
+        raise HTTPException(status_code=403, detail="Sin acceso")
+    if solicitud.estado == EstadoSolicitud.EN_CAMINO:
+        raise HTTPException(status_code=400, detail="No se puede cancelar — el profesional ya está en camino")
+    if solicitud.estado not in (EstadoSolicitud.PENDIENTE, EstadoSolicitud.EN_PROGRESO):
+        raise HTTPException(status_code=400, detail="No se puede cancelar en este estado")
+
+    penalizacion = _calcular_penalizacion(solicitud.turno_solicitado)
+    _aplicar_penalizacion_cliente(db, id_usuario, penalizacion)
+
+    solicitud_repository.asignar_plomero(db, id_solicitud, None)
+    s = solicitud_repository.cambiar_estado(db, id_solicitud, EstadoSolicitud.CANCELADA)
+    return {
+        **_to_response(s),
+        "penalizacion_aplicada": penalizacion,
+        "mensaje": "Solicitud cancelada" + (f" — se aplicó una penalización de {penalizacion} puntos" if penalizacion > 0 else " sin penalización"),
+    }
+
+
+def cancelar_plomero(db: Session, id_solicitud: int, id_plomero: int):
+    """Cancelación por parte del PLOMERO."""
     solicitud = solicitud_repository.obtener_por_id(db, id_solicitud)
     if not solicitud:
         raise HTTPException(status_code=404, detail="No encontrada")
     if solicitud.id_plomero != id_plomero:
         raise HTTPException(status_code=403, detail="No autorizado")
-    if solicitud.estado not in (EstadoSolicitud.EN_PROGRESO, EstadoSolicitud.EN_CAMINO):
-        raise HTTPException(status_code=400, detail="No está en progreso")
+    if solicitud.estado not in (EstadoSolicitud.PENDIENTE, EstadoSolicitud.EN_PROGRESO):
+        raise HTTPException(status_code=400, detail="No se puede cancelar en este estado")
 
-    s = solicitud_repository.cambiar_estado(db, id_solicitud, EstadoSolicitud.PENDIENTE_CALIFICACION)
-    return _to_response(s)
+    penalizacion = _calcular_penalizacion(solicitud.turno_solicitado)
+    _aplicar_penalizacion_plomero(db, id_plomero, penalizacion)
+
+    solicitud_repository.asignar_plomero(db, id_solicitud, None)
+    s = solicitud_repository.cambiar_estado(db, id_solicitud, EstadoSolicitud.CANCELADA)
+    return {
+        **_to_response(s),
+        "penalizacion_aplicada": penalizacion,
+        "mensaje": "Trabajo cancelado" + (f" — se aplicó una penalización de {penalizacion} puntos" if penalizacion > 0 else " sin penalización"),
+    }
+
+
+# ─────────────────────────────────────────────
+# BUSCAR
+# ─────────────────────────────────────────────
+
+def buscar_por_texto(db: Session, q: str):
+    return solicitud_repository.buscar_por_texto(db, q)
 
 
 # ─────────────────────────────────────────────

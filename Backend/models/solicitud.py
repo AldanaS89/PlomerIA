@@ -40,6 +40,7 @@ class Solicitud(Base):
     longitud_evento  = Column(Float,  nullable=True)
 
     turno_solicitado = Column(String, nullable=True)
+    fecha_trabajo = Column(DateTime, nullable=True)
 
     estado = Column(Enum(EstadoSolicitud), default=EstadoSolicitud.PENDIENTE)
     fecha  = Column(DateTime, default=datetime.now)

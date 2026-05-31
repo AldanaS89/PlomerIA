@@ -12,6 +12,7 @@ class SolicitudCreate(BaseModel):
     solo_mujeres:                 bool            = False
     ids_plomeros_seleccionados:   List[int]       = []
     turnos_por_plomero:           Dict[str, str]  = {}  # {id_plomero: "Lun_manana_9"}
+    fecha_trabajo:                datetime | None = None
 
 
 class SolicitudResponse(BaseModel):

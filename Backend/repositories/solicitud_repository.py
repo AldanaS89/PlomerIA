@@ -25,6 +25,7 @@ def crear(db: Session, id_usuario: int, datos: SolicitudCreate, diagnostico: dic
         urgencia_ia      = diagnostico["urgencia_ia"],
         presupuesto_min  = diagnostico["presupuesto_min"],
         presupuesto_max  = diagnostico["presupuesto_max"],
+        fecha_trabajo    =datos.fecha_trabajo,
         estado           = EstadoSolicitud.PENDIENTE
     )
     db.add(solicitud)
