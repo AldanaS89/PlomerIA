@@ -54,7 +54,12 @@ def mis_solicitudes_plomero(
     db: Session = Depends(get_db),
     id_plomero: int = Depends(get_plomero_actual),
 ):
-    return solicitud_service.listar_por_plomero(db, id_plomero)
+    print("PLOMERO LOGUEADO:", id_plomero)
+
+    return solicitud_service.listar_por_plomero(
+        db,
+        id_plomero
+    )
 
 
 @router.patch("/{id_solicitud}/aceptar")

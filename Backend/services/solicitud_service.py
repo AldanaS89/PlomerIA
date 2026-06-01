@@ -2,6 +2,7 @@ from fastapi import HTTPException
 from sqlalchemy.orm import Session
 from datetime import datetime, timedelta
 
+from services.notificacion_service import notificacion_service
 from services import ia_service
 from models.solicitud import EstadoSolicitud
 from models.bloqueHorario import BloqueHorario
@@ -167,7 +168,7 @@ def _to_response(s) -> dict:
 
     if estado_val in ESTADOS_CON_DIRECCION and s.usuario:
         result["direccion_cliente"] = s.usuario.direccion
-
+    print("TO_RESPONSE SUGERIDOS:", s.ids_plomeros_sugeridos)
     return result
 
 def _marcar_bloque_ocupado(db, id_plomero, fecha_trabajo):
@@ -255,18 +256,99 @@ def crear_solicitud(db: Session, datos: SolicitudCreate, id_usuario: int):
 # ACEPTAR
 # ─────────────────────────────────────────────
 
+# def aceptar(db: Session, id_solicitud: int, id_plomero: int):
+#     solicitud = solicitud_repository.obtener_por_id(db, id_solicitud)
+#     if not solicitud:
+#         raise HTTPException(status_code=404, detail="No encontrada")
+#     if solicitud.estado != EstadoSolicitud.PENDIENTE:
+#         raise HTTPException(status_code=400, detail="La solicitud ya no está disponible")
+
+#     solicitud_repository.asignar_plomero(db, id_solicitud, id_plomero)
+#     _marcar_bloque_ocupado(db, id_plomero, solicitud.fecha)
+#     _resetear_cancelaciones_plomero(db, id_plomero)
+
+#     s = solicitud_repository.cambiar_estado(db, id_solicitud, EstadoSolicitud.EN_PROGRESO)
+#     return _to_response(s)
 def aceptar(db: Session, id_solicitud: int, id_plomero: int):
-    solicitud = solicitud_repository.obtener_por_id(db, id_solicitud)
+
+    solicitud = solicitud_repository.obtener_por_id(
+        db,
+        id_solicitud
+    )
+
     if not solicitud:
-        raise HTTPException(status_code=404, detail="No encontrada")
-    if solicitud.estado != EstadoSolicitud.PENDIENTE:
-        raise HTTPException(status_code=400, detail="La solicitud ya no está disponible")
+        raise HTTPException(
+            status_code=404,
+            detail="No encontrada"
+        )
 
-    solicitud_repository.asignar_plomero(db, id_solicitud, id_plomero)
-    _marcar_bloque_ocupado(db, id_plomero, solicitud.fecha)
-    _resetear_cancelaciones_plomero(db, id_plomero)
+    print("========== ACEPTAR ==========")
+    print("Solicitud:", solicitud.id_solicitud)
+    print("Plomero elegido:", id_plomero)
+    print("Estado:", solicitud.estado)
+    print("Asignado actual:", solicitud.id_plomero)
+    print("Sugeridos:", solicitud.ids_plomeros_sugeridos)
+    print("Activos:", solicitud.ids_plomeros_activos)
 
-    s = solicitud_repository.cambiar_estado(db, id_solicitud, EstadoSolicitud.EN_PROGRESO)
+    # Solo puede elegirse si todavía está disponible
+    if solicitud.estado not in (
+        EstadoSolicitud.PENDIENTE,
+        EstadoSolicitud.REASIGNACION_PENDIENTE,
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail="La solicitud ya no está disponible"
+        )
+
+    # Si ya tiene alguien asignado
+    if solicitud.id_plomero:
+        raise HTTPException(
+            status_code=400,
+            detail="La solicitud ya tiene un plomero asignado"
+        )
+
+    # Validar que esté dentro de los sugeridos
+    sugeridos = set(
+        filter(
+            None,
+            (solicitud.ids_plomeros_sugeridos or "").split(",")
+        )
+    )
+
+    print("Sugeridos parseados:", sugeridos)
+
+    if sugeridos and str(id_plomero) not in sugeridos:
+        raise HTTPException(
+            status_code=403,
+            detail="El plomero seleccionado no pertenece a esta solicitud"
+        )
+
+    solicitud_repository.asignar_plomero(
+        db,
+        id_solicitud,
+        id_plomero
+    )
+
+    _marcar_bloque_ocupado(
+        db,
+        id_plomero,
+        solicitud.fecha
+    )
+
+    _resetear_cancelaciones_plomero(
+        db,
+        id_plomero
+    )
+
+    s = solicitud_repository.cambiar_estado(
+        db,
+        id_solicitud,
+        EstadoSolicitud.EN_PROGRESO
+    )
+
+    print("Plomero asignado correctamente:", id_plomero)
+    print("============================")
+
     return _to_response(s)
 
 # ─────────────────────────────────────────────
@@ -303,38 +385,63 @@ def marcar_en_camino(db: Session, id_solicitud: int, id_plomero: int):
 
 
 # ─────────────────────────────────────────────
-# RECHAZO (REASIGNACIÓN REAL)
+# RECHAZO (CLIENTE VUELVE A ELEGIR)
 # ─────────────────────────────────────────────
-
 def rechazar(db: Session, id_solicitud: int, id_plomero: int):
-
+    # Obtener solicitud
     s = solicitud_repository.obtener_por_id(db, id_solicitud)
     if not s:
-        raise HTTPException(404, "No encontrada")
+        raise HTTPException(status_code=404, detail="No encontrada")
 
-    contactados = set((s.ids_plomeros_contactados or "").split(","))
+    print("Solicitud:", s.id_solicitud)
+    print("Plomero actual asignado:", s.id_plomero)
+    print("Plomero token (quien rechaza):", id_plomero)
 
-    contactados.add(str(id_plomero))
+    if s.id_plomero != id_plomero:
+        raise HTTPException(status_code=403, detail="No autorizado")
 
-    # liberar plomero actual
-    s.id_plomero = None
-    s.estado = EstadoSolicitud.PENDIENTE
+    # Registrar como contactado (para no volver a sugerirlo)
+    solicitud_repository.agregar_contactado(db, id_solicitud, id_plomero)
 
+    # Desasignar plomero actual
+    solicitud_repository.asignar_plomero(db, id_solicitud, None)
+
+    # Obtener plomeros ya contactados
+    contactados = solicitud_repository.obtener_contactados(db, id_solicitud)
+    print("Contactados hasta ahora:", contactados)
+
+    # Buscar candidatos compatibles
     candidatos = plomero_repository.buscar_para_solicitud(
         db,
         especialidades=s.etiqueta_ia,
         lat_usuario=s.latitud_evento,
         lon_usuario=s.longitud_evento,
+        atiende_urgencias=(s.urgencia_ia == "URGENTE"),
         limite=50,
     )
+    print("Candidatos encontrados:", [p.id_plomero for p in candidatos])
 
-    opciones = [
-        p for p in candidatos
-        if str(p.id_plomero) not in contactados
-        and p.disponible_ahora
-    ][:5]
+    # Excluir los ya contactados
+    opciones = [p for p in candidatos if str(p.id_plomero) not in contactados][:5]
+    print("Opciones finales para reasignar:", [p.id_plomero for p in opciones])
 
-    db.commit()
+    if opciones:
+        # Guardar nuevos sugeridos
+        solicitud_repository.guardar_ids_sugeridos(db, id_solicitud, [p.id_plomero for p in opciones])
+
+        # Cambiar estado a pendiente para que se pueda reasignar
+        solicitud_repository.cambiar_estado(db, id_solicitud, EstadoSolicitud.PENDIENTE)
+        mensaje = f"Se encontraron {len(opciones)} nuevos plomeros para elegir."
+    else:
+        solicitud_repository.cambiar_estado(db, id_solicitud, EstadoSolicitud.REASIGNACION_PENDIENTE)
+        mensaje = "No hay más plomeros disponibles por ahora."
+
+    # Refrescar la solicitud final
+    s = solicitud_repository.obtener_por_id(db, id_solicitud)
+    print("ID plomero asignado ahora:", s.id_plomero)
+    print("Plomeros activos ahora:", s.ids_plomeros_activos)
+    print("Contactados ahora:", s.ids_plomeros_contactados)
+    print("Estado final:", s.estado)
 
     return {
         "solicitud": _to_response(s),
@@ -346,10 +453,9 @@ def rechazar(db: Session, id_solicitud: int, id_plomero: int):
                 "puntuacion": p.puntuacion,
             }
             for p in opciones
-        ]
+        ],
+        "mensaje": mensaje,
     }
-
-
 # ─────────────────────────────────────────────
 # CANCELAR — con penalizaciones
 # ─────────────────────────────────────────────
