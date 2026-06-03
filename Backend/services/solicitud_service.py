@@ -1,3 +1,5 @@
+import logging
+
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 from datetime import datetime, timedelta
@@ -15,86 +17,23 @@ from repositories import (
 )
 
 from services.filtrado_service import filtrado_service
+from services import calificacion_service as _cal_service
+
+logger = logging.getLogger(__name__)
 
 
 # ─── PENALIZACIONES ───────────────────────────────────────────────────────────
-HORAS_SIN_PENALIZACION = 24   # más de 24hs antes → sin penalización
-PENALIZACION_CON_AVISO = 0.5  # menos de 24hs → -0.5
-PENALIZACION_MISMO_DIA = 1.0  # mismo día → -1.0
+# La lógica completa de penalización (tiempo + comunicación) vive en
+# calificacion_service.calcular_penalizacion() para mantener responsabilidad única.
+# Este service solo delega a través de penalizar_por_cancelacion().
+
 CANCELACIONES_PARA_SUSPENSION = 3
-
-
-def _calcular_penalizacion(turno_str: str | None) -> float:
-    """Calcula la penalización según cuánto tiempo falta para el turno."""
-    if not turno_str:
-        return PENALIZACION_CON_AVISO
-
-    try:
-        # turno_str: "Lun_manana_9" → intentar parsear
-        partes = turno_str.split("_")
-        if len(partes) < 3:
-            return PENALIZACION_CON_AVISO
-
-        dia_str  = partes[0]
-        hora_str = partes[2] if len(partes) > 2 else "9"
-        hora     = int(hora_str)
-
-        IDX = {"Lun":0,"Mar":1,"Mié":2,"Jue":3,"Vie":4,"Sáb":5,"Dom":6}
-        dia_idx = IDX.get(dia_str, 0)
-
-        hoy     = datetime.now()
-        diff    = (dia_idx - hoy.weekday()) % 7
-        turno_dt = hoy.replace(hour=hora, minute=0, second=0, microsecond=0)
-        turno_dt += timedelta(days=diff if diff > 0 else 7)
-
-        horas_restantes = (turno_dt - hoy).total_seconds() / 3600
-
-        if horas_restantes > HORAS_SIN_PENALIZACION:
-            return 0.0
-        elif horas_restantes > 0:
-            # Mismo día (menos de 8hs)
-            if horas_restantes < 8:
-                return PENALIZACION_MISMO_DIA
-            return PENALIZACION_CON_AVISO
-        else:
-            return PENALIZACION_MISMO_DIA
-    except Exception:
-        return PENALIZACION_CON_AVISO
-
-
-def _aplicar_penalizacion_plomero(db: Session, id_plomero: int, penalizacion: float):
-    """Resta puntuación y controla suspensión por cancelaciones consecutivas."""
-    if penalizacion <= 0:
-        return
-    p = plomero_repository.buscar_por_id(db, id_plomero)
-    if not p:
-        return
-    p.puntuacion = max(1.0, round(p.puntuacion - penalizacion, 1))
-    p.cancelaciones_consecutivas = (p.cancelaciones_consecutivas or 0) + 1
-    if p.cancelaciones_consecutivas >= CANCELACIONES_PARA_SUSPENSION:
-        p.disponible_ahora = False
-        p.suspendido = True
-    db.commit()
-
-
-def _aplicar_penalizacion_cliente(db: Session, id_usuario: int, penalizacion: float):
-    """Registra cancelaciones del cliente y suspende si acumula 3 seguidas."""
-    if penalizacion <= 0:
-        return
-    u = usuario_repository.buscar_por_id(db, id_usuario)
-    if not u:
-        return
-    u.cancelaciones_consecutivas = (u.cancelaciones_consecutivas or 0) + 1
-    if u.cancelaciones_consecutivas >= CANCELACIONES_PARA_SUSPENSION:
-        u.suspendido = True
-    db.commit()
 
 
 def _resetear_cancelaciones_plomero(db: Session, id_plomero: int):
     p = plomero_repository.buscar_por_id(db, id_plomero)
     if p:
-        p.cancelaciones_consecutivas = 0
-        db.commit()
+        _cal_service.resetear_cancelaciones(db, p)
 
 
 # ─────────────────────────────────────────────
@@ -168,8 +107,9 @@ def _to_response(s) -> dict:
 
     if estado_val in ESTADOS_CON_DIRECCION and s.usuario:
         result["direccion_cliente"] = s.usuario.direccion
-    print("TO_RESPONSE SUGERIDOS:", s.ids_plomeros_sugeridos)
+
     return result
+
 
 def _marcar_bloque_ocupado(db, id_plomero, fecha_trabajo):
     if not fecha_trabajo:
@@ -189,7 +129,7 @@ def _marcar_bloque_ocupado(db, id_plomero, fecha_trabajo):
             bloque.ocupado = True
             db.commit()
     except Exception as e:
-        print(f"[solicitud_service] No se pudo marcar bloque: {e}")
+        logger.warning(f"No se pudo marcar bloque horario: {e}")
 
 
 # ─────────────────────────────────────────────
@@ -238,84 +178,46 @@ def crear_solicitud(db: Session, datos: SolicitudCreate, id_usuario: int):
 
     ids_str = ",".join(str(i) for i in ids_seleccionados) if ids_seleccionados else None
 
-    solicitud = solicitud_repository.crear(db, id_usuario, datos, diagnostico)
+    # Crear solicitud incluyendo turno_solicitado desde el principio
+    # para garantizar que se persista en el mismo commit
+    solicitud = solicitud_repository.crear(
+        db, id_usuario, datos, diagnostico,
+        turno_solicitado=turno_elegido,
+        ids_plomeros_sugeridos=ids_str,
+        id_plomero=plomero.id_plomero if plomero else None,
+    )
 
-    if ids_str:
-        solicitud.ids_plomeros_sugeridos = ids_str
-    if turno_elegido:
-        solicitud.turno_solicitado = turno_elegido
-
-    if plomero:
-        solicitud.id_plomero = plomero.id_plomero
-    solicitud.estado = EstadoSolicitud.PENDIENTE
-
-    db.commit()
     db.refresh(solicitud)
     return _to_response(solicitud)
+
+
 # ─────────────────────────────────────────────
 # ACEPTAR
 # ─────────────────────────────────────────────
 
-# def aceptar(db: Session, id_solicitud: int, id_plomero: int):
-#     solicitud = solicitud_repository.obtener_por_id(db, id_solicitud)
-#     if not solicitud:
-#         raise HTTPException(status_code=404, detail="No encontrada")
-#     if solicitud.estado != EstadoSolicitud.PENDIENTE:
-#         raise HTTPException(status_code=400, detail="La solicitud ya no está disponible")
-
-#     solicitud_repository.asignar_plomero(db, id_solicitud, id_plomero)
-#     _marcar_bloque_ocupado(db, id_plomero, solicitud.fecha)
-#     _resetear_cancelaciones_plomero(db, id_plomero)
-
-#     s = solicitud_repository.cambiar_estado(db, id_solicitud, EstadoSolicitud.EN_PROGRESO)
-#     return _to_response(s)
 def aceptar(db: Session, id_solicitud: int, id_plomero: int):
 
-    solicitud = solicitud_repository.obtener_por_id(
-        db,
-        id_solicitud
-    )
+    solicitud = solicitud_repository.obtener_por_id(db, id_solicitud)
 
     if not solicitud:
-        raise HTTPException(
-            status_code=404,
-            detail="No encontrada"
-        )
+        raise HTTPException(status_code=404, detail="No encontrada")
 
-    print("========== ACEPTAR ==========")
-    print("Solicitud:", solicitud.id_solicitud)
-    print("Plomero elegido:", id_plomero)
-    print("Estado:", solicitud.estado)
-    print("Asignado actual:", solicitud.id_plomero)
-    print("Sugeridos:", solicitud.ids_plomeros_sugeridos)
-    print("Activos:", solicitud.ids_plomeros_activos)
+    logger.debug(
+        "Aceptar solicitud %s — plomero %s — estado actual: %s",
+        id_solicitud, id_plomero, solicitud.estado
+    )
 
-    # Solo puede elegirse si todavía está disponible
     if solicitud.estado not in (
         EstadoSolicitud.PENDIENTE,
         EstadoSolicitud.REASIGNACION_PENDIENTE,
     ):
-        raise HTTPException(
-            status_code=400,
-            detail="La solicitud ya no está disponible"
-        )
+        raise HTTPException(status_code=400, detail="La solicitud ya no está disponible")
 
-    # Si ya tiene alguien asignado
     if solicitud.id_plomero:
-        raise HTTPException(
-            status_code=400,
-            detail="La solicitud ya tiene un plomero asignado"
-        )
+        raise HTTPException(status_code=400, detail="La solicitud ya tiene un plomero asignado")
 
     # Validar que esté dentro de los sugeridos
-    sugeridos = set(
-        filter(
-            None,
-            (solicitud.ids_plomeros_sugeridos or "").split(",")
-        )
-    )
-
-    print("Sugeridos parseados:", sugeridos)
+    sugeridos = set(filter(None, (solicitud.ids_plomeros_sugeridos or "").split(",")))
 
     if sugeridos and str(id_plomero) not in sugeridos:
         raise HTTPException(
@@ -323,33 +225,16 @@ def aceptar(db: Session, id_solicitud: int, id_plomero: int):
             detail="El plomero seleccionado no pertenece a esta solicitud"
         )
 
-    solicitud_repository.asignar_plomero(
-        db,
-        id_solicitud,
-        id_plomero
-    )
+    solicitud_repository.asignar_plomero(db, id_solicitud, id_plomero)
+    _marcar_bloque_ocupado(db, id_plomero, solicitud.fecha_trabajo)
+    _resetear_cancelaciones_plomero(db, id_plomero)
 
-    _marcar_bloque_ocupado(
-        db,
-        id_plomero,
-        solicitud.fecha
-    )
+    s = solicitud_repository.cambiar_estado(db, id_solicitud, EstadoSolicitud.EN_PROGRESO)
 
-    _resetear_cancelaciones_plomero(
-        db,
-        id_plomero
-    )
-
-    s = solicitud_repository.cambiar_estado(
-        db,
-        id_solicitud,
-        EstadoSolicitud.EN_PROGRESO
-    )
-
-    print("Plomero asignado correctamente:", id_plomero)
-    print("============================")
+    logger.debug("Solicitud %s asignada al plomero %s", id_solicitud, id_plomero)
 
     return _to_response(s)
+
 
 # ─────────────────────────────────────────────
 # EN CAMINO
@@ -375,27 +260,51 @@ def marcar_en_camino(db: Session, id_solicitud: int, id_plomero: int):
                 detail="Solo podés marcar EN CAMINO el día del trabajo"
             )
 
-    s = solicitud_repository.cambiar_estado(
-        db,
-        id_solicitud,
-        EstadoSolicitud.EN_CAMINO
-    )
-
+    s = solicitud_repository.cambiar_estado(db, id_solicitud, EstadoSolicitud.EN_CAMINO)
     return _to_response(s)
 
 
 # ─────────────────────────────────────────────
-# RECHAZO (CLIENTE VUELVE A ELEGIR)
+# COMPLETAR — plomero marca que terminó el trabajo
 # ─────────────────────────────────────────────
+
+def completar(db: Session, id_solicitud: int, id_plomero: int):
+    """
+    El plomero marca el trabajo como terminado.
+    La solicitud pasa a PENDIENTE_CALIFICACION para que el cliente pueda calificar.
+    Solo disponible cuando el estado es EN_CAMINO.
+    """
+    solicitud = solicitud_repository.obtener_por_id(db, id_solicitud)
+
+    if not solicitud:
+        raise HTTPException(status_code=404, detail="No encontrada")
+
+    if solicitud.id_plomero != id_plomero:
+        raise HTTPException(status_code=403, detail="No autorizado")
+
+    if solicitud.estado != EstadoSolicitud.EN_CAMINO:
+        raise HTTPException(
+            status_code=400,
+            detail="Solo podés marcar como terminado cuando estás en camino"
+        )
+
+    # Resetear cancelaciones consecutivas al completar exitosamente
+    _resetear_cancelaciones_plomero(db, id_plomero)
+
+    s = solicitud_repository.cambiar_estado(
+        db, id_solicitud, EstadoSolicitud.PENDIENTE_CALIFICACION
+    )
+    return _to_response(s)
+
+
+# ─────────────────────────────────────────────
+# RECHAZO (PLOMERO RECHAZA — CLIENTE VUELVE A ELEGIR)
+# ─────────────────────────────────────────────
+
 def rechazar(db: Session, id_solicitud: int, id_plomero: int):
-    # Obtener solicitud
     s = solicitud_repository.obtener_por_id(db, id_solicitud)
     if not s:
         raise HTTPException(status_code=404, detail="No encontrada")
-
-    print("Solicitud:", s.id_solicitud)
-    print("Plomero actual asignado:", s.id_plomero)
-    print("Plomero token (quien rechaza):", id_plomero)
 
     if s.id_plomero != id_plomero:
         raise HTTPException(status_code=403, detail="No autorizado")
@@ -408,9 +317,8 @@ def rechazar(db: Session, id_solicitud: int, id_plomero: int):
 
     # Obtener plomeros ya contactados
     contactados = solicitud_repository.obtener_contactados(db, id_solicitud)
-    print("Contactados hasta ahora:", contactados)
 
-    # Buscar candidatos compatibles
+    # Buscar candidatos compatibles excluyendo contactados
     candidatos = plomero_repository.buscar_para_solicitud(
         db,
         especialidades=s.etiqueta_ia,
@@ -419,30 +327,18 @@ def rechazar(db: Session, id_solicitud: int, id_plomero: int):
         atiende_urgencias=(s.urgencia_ia == "URGENTE"),
         limite=50,
     )
-    print("Candidatos encontrados:", [p.id_plomero for p in candidatos])
 
-    # Excluir los ya contactados
     opciones = [p for p in candidatos if str(p.id_plomero) not in contactados][:5]
-    print("Opciones finales para reasignar:", [p.id_plomero for p in opciones])
 
     if opciones:
-        # Guardar nuevos sugeridos
         solicitud_repository.guardar_ids_sugeridos(db, id_solicitud, [p.id_plomero for p in opciones])
-
-        # Cambiar estado a pendiente para que se pueda reasignar
         solicitud_repository.cambiar_estado(db, id_solicitud, EstadoSolicitud.PENDIENTE)
         mensaje = f"Se encontraron {len(opciones)} nuevos plomeros para elegir."
     else:
         solicitud_repository.cambiar_estado(db, id_solicitud, EstadoSolicitud.REASIGNACION_PENDIENTE)
         mensaje = "No hay más plomeros disponibles por ahora."
 
-    # Refrescar la solicitud final
     s = solicitud_repository.obtener_por_id(db, id_solicitud)
-    print("ID plomero asignado ahora:", s.id_plomero)
-    print("Plomeros activos ahora:", s.ids_plomeros_activos)
-    print("Contactados ahora:", s.ids_plomeros_contactados)
-    print("Estado final:", s.estado)
-
     return {
         "solicitud": _to_response(s),
         "opciones": [
@@ -456,54 +352,156 @@ def rechazar(db: Session, id_solicitud: int, id_plomero: int):
         ],
         "mensaje": mensaje,
     }
+
+
 # ─────────────────────────────────────────────
-# CANCELAR — con penalizaciones
+# CANCELAR
 # ─────────────────────────────────────────────
+#
+# Tres situaciones con consecuencias distintas:
+#
+# 1. Cliente cancela SIN plomero asignado (nadie respondio)
+#    → Sin penalizacion. Solicitud a CANCELADA.
+#
+# 2. Cliente cancela CON plomero ya asignado
+#    → Penalizacion al cliente (calificacion automatica al promedio).
+#    → Solicitud a CANCELADA.
+#
+# 3. Plomero cancela despues de haber aceptado
+#    → Penalizacion al plomero (calificacion automatica al promedio).
+#    → Solicitud a REASIGNACION_PENDIENTE si quedan intentos (max 3).
+#    → Solicitud a CANCELADA si se agotaron los intentos.
+#    → Si el cliente decide no seguir buscando: sin penalizacion para el.
+
+MAX_INTENTOS_REASIGNACION = 3
+
 
 def cancelar(db: Session, id_solicitud: int, id_usuario: int):
-    """Cancelación por parte del CLIENTE."""
+    """
+    Cancelacion por parte del CLIENTE.
+    - Sin plomero asignado → sin penalizacion, cierra la solicitud.
+    - Con plomero asignado → penalizacion al cliente, cierra la solicitud.
+    - En REASIGNACION_PENDIENTE (el plomero ya cancelo) → sin penalizacion.
+    """
     solicitud = solicitud_repository.obtener_por_id(db, id_solicitud)
     if not solicitud:
         raise HTTPException(status_code=404, detail="No encontrada")
     if solicitud.id_usuario != id_usuario:
         raise HTTPException(status_code=403, detail="Sin acceso")
     if solicitud.estado == EstadoSolicitud.EN_CAMINO:
-        raise HTTPException(status_code=400, detail="No se puede cancelar — el profesional ya está en camino")
-    if solicitud.estado not in (EstadoSolicitud.PENDIENTE, EstadoSolicitud.EN_PROGRESO):
-        raise HTTPException(status_code=400, detail="No se puede cancelar en este estado")
+        raise HTTPException(
+            status_code=400,
+            detail="No se puede cancelar — el profesional ya esta en camino"
+        )
 
-    penalizacion = _calcular_penalizacion(solicitud.turno_solicitado)
-    _aplicar_penalizacion_cliente(db, id_usuario, penalizacion)
+    estados_cancelables = (
+        EstadoSolicitud.PENDIENTE,
+        EstadoSolicitud.EN_PROGRESO,
+        EstadoSolicitud.REASIGNACION_PENDIENTE,
+    )
+    if solicitud.estado not in estados_cancelables:
+        raise HTTPException(
+            status_code=400,
+            detail="No se puede cancelar en este estado"
+        )
+
+    # Penalizar solo si habia plomero asignado y el cliente cancela directamente
+    habia_plomero   = solicitud.id_plomero is not None
+    en_reasignacion = solicitud.estado == EstadoSolicitud.REASIGNACION_PENDIENTE
+
+    penalizacion = 0.0
+    if habia_plomero and not en_reasignacion:
+        penalizacion = _cal_service.penalizar_por_cancelacion(
+            db, solicitud, id_usuario, "cliente"
+        )
 
     solicitud_repository.asignar_plomero(db, id_solicitud, None)
-    s = solicitud_repository.cambiar_estado(db, id_solicitud, EstadoSolicitud.CANCELADA)
+    s = solicitud_repository.cambiar_estado(
+        db, id_solicitud, EstadoSolicitud.CANCELADA
+    )
+
     return {
         **_to_response(s),
         "penalizacion_aplicada": penalizacion,
-        "mensaje": "Solicitud cancelada" + (f" — se aplicó una penalización de {penalizacion} puntos" if penalizacion > 0 else " sin penalización"),
+        "mensaje": (
+            "Solicitud cancelada sin penalizacion"
+            if penalizacion == 0
+            else f"Solicitud cancelada — calificacion automatica de {penalizacion} estrellas aplicada a tu promedio"
+        ),
     }
 
 
 def cancelar_plomero(db: Session, id_solicitud: int, id_plomero: int):
-    """Cancelación por parte del PLOMERO."""
+    """
+    Cancelacion por parte del PLOMERO despues de haber aceptado.
+    - Siempre penaliza al plomero con calificacion automatica.
+    - Si quedan intentos → REASIGNACION_PENDIENTE (solicitud sigue activa).
+    - Si se agotaron los 3 intentos → CANCELADA.
+    """
     solicitud = solicitud_repository.obtener_por_id(db, id_solicitud)
     if not solicitud:
         raise HTTPException(status_code=404, detail="No encontrada")
     if solicitud.id_plomero != id_plomero:
         raise HTTPException(status_code=403, detail="No autorizado")
-    if solicitud.estado not in (EstadoSolicitud.PENDIENTE, EstadoSolicitud.EN_PROGRESO):
-        raise HTTPException(status_code=400, detail="No se puede cancelar en este estado")
 
-    penalizacion = _calcular_penalizacion(solicitud.turno_solicitado)
-    _aplicar_penalizacion_plomero(db, id_plomero, penalizacion)
+    estados_cancelables = (
+        EstadoSolicitud.EN_PROGRESO,
+        EstadoSolicitud.EN_CAMINO,
+    )
+    if solicitud.estado not in estados_cancelables:
+        raise HTTPException(
+            status_code=400,
+            detail="No se puede cancelar en este estado"
+        )
 
+    # Penalizar al plomero siempre
+    penalizacion = _cal_service.penalizar_por_cancelacion(
+        db, solicitud, id_plomero, "plomero"
+    )
+
+    # Registrar como contactado para no sugerirlo de nuevo
+    solicitud_repository.agregar_contactado(db, id_solicitud, id_plomero)
+
+    # Desasignar plomero
     solicitud_repository.asignar_plomero(db, id_solicitud, None)
-    s = solicitud_repository.cambiar_estado(db, id_solicitud, EstadoSolicitud.CANCELADA)
+
+    # Verificar intentos restantes
+    intentos_usados = solicitud.intentos_reasignacion or 0
+
+    if intentos_usados < MAX_INTENTOS_REASIGNACION:
+        # Solicitud sigue activa, incrementar contador
+        solicitud_repository.actualizar_activos(db, id_solicitud, [])
+        s = solicitud_repository.cambiar_estado(
+            db, id_solicitud, EstadoSolicitud.REASIGNACION_PENDIENTE
+        )
+        # Incrementar manualmente el contador de intentos
+        sol = solicitud_repository.obtener_por_id(db, id_solicitud)
+        if sol:
+            sol.intentos_reasignacion = intentos_usados + 1
+            db.commit()
+
+        intentos_restantes = MAX_INTENTOS_REASIGNACION - (intentos_usados + 1)
+        mensaje = (
+            f"El trabajo fue cancelado por el profesional. "
+            f"Podes volver a buscar ({intentos_restantes} intento{'s' if intentos_restantes != 1 else ''} restante{'s' if intentos_restantes != 1 else ''})."
+        )
+    else:
+        # Sin mas intentos, cerrar
+        s = solicitud_repository.cambiar_estado(
+            db, id_solicitud, EstadoSolicitud.CANCELADA
+        )
+        mensaje = (
+            "El trabajo fue cancelado por el profesional. "
+            "Se agotaron los intentos de reasignacion."
+        )
+
     return {
         **_to_response(s),
-        "penalizacion_aplicada": penalizacion,
-        "mensaje": "Trabajo cancelado" + (f" — se aplicó una penalización de {penalizacion} puntos" if penalizacion > 0 else " sin penalización"),
+        "penalizacion_plomero": penalizacion,
+        "intentos_usados": intentos_usados + 1,
+        "mensaje": mensaje,
     }
+
 
 # ─────────────────────────────────────────────
 # LISTADOS
@@ -529,6 +527,8 @@ def obtener_para_usuario(db: Session, id_solicitud: int, id_usuario: int):
     if solicitud.id_usuario != id_usuario:
         raise HTTPException(status_code=403, detail="Sin acceso")
     return _to_response(solicitud)
+
+
 # ─────────────────────────────────────────────
 # BUSCAR
 # ─────────────────────────────────────────────

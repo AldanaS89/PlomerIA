@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Optional
 
 from sqlalchemy.orm import Session, joinedload
 from models.solicitud import Solicitud, EstadoSolicitud
@@ -12,7 +13,21 @@ def _cargar_relaciones(query):
     )
 
 
-def crear(db: Session, id_usuario: int, datos, diagnostico: dict) -> Solicitud:
+def crear(
+    db: Session,
+    id_usuario: int,
+    datos,
+    diagnostico: dict,
+    turno_solicitado: Optional[str] = None,
+    ids_plomeros_sugeridos: Optional[str] = None,
+    id_plomero: Optional[int] = None,
+) -> Solicitud:
+    """
+    Crea una solicitud con todos sus datos en un único commit.
+    turno_solicitado, ids_plomeros_sugeridos e id_plomero se
+    pasan como argumentos para evitar modificaciones post-commit
+    que podrían perderse si hay un error intermedio.
+    """
     solicitud = Solicitud(
         id_usuario=id_usuario,
         descripcion_raw=datos.descripcion_raw,
@@ -24,6 +39,9 @@ def crear(db: Session, id_usuario: int, datos, diagnostico: dict) -> Solicitud:
         presupuesto_min=diagnostico["presupuesto_min"],
         presupuesto_max=diagnostico["presupuesto_max"],
         fecha_trabajo=datos.fecha_trabajo,
+        turno_solicitado=turno_solicitado,
+        ids_plomeros_sugeridos=ids_plomeros_sugeridos,
+        id_plomero=id_plomero,
         estado=EstadoSolicitud.PENDIENTE,
     )
     db.add(solicitud)
@@ -60,15 +78,7 @@ def listar_por_usuario(db: Session, id_usuario: int):
     )
 
 
-# def listar_por_plomero(db: Session, id_plomero: int):
-#     return (
-#         _cargar_relaciones(db.query(Solicitud))
-#         .filter(Solicitud.estado != EstadoSolicitud.CANCELADA)
-#         .order_by(Solicitud.fecha.desc())
-#         .all()
-#     )
 def listar_por_plomero(db: Session, id_plomero: int):
-
     solicitudes = (
         _cargar_relaciones(db.query(Solicitud))
         .filter(Solicitud.estado != EstadoSolicitud.CANCELADA)
@@ -79,23 +89,19 @@ def listar_por_plomero(db: Session, id_plomero: int):
 
     for s in solicitudes:
 
-        # trabajo asignado
+        # trabajo asignado directamente
         if s.id_plomero == id_plomero:
             resultado.append(s)
             continue
 
-        # candidato activo
-        activos = set(
-            filter(
-                None,
-                (s.ids_plomeros_activos or "").split(",")
-            )
-        )
+        # candidato activo (sugerido)
+        activos = set(filter(None, (s.ids_plomeros_activos or "").split(",")))
 
         if str(id_plomero) in activos:
             resultado.append(s)
 
     return resultado
+
 
 def cambiar_estado(db: Session, id: int, nuevo_estado):
     solicitud = obtener_por_id(db, id)
@@ -135,11 +141,13 @@ def agregar_contactado(db: Session, id_solicitud: int, id_plomero: int) -> None:
     s.ids_plomeros_contactados = ",".join(actuales)
     db.commit()
 
+
 def obtener_contactados(db: Session, id_solicitud: int) -> set[str]:
     s = obtener_por_id(db, id_solicitud)
     if not s or not s.ids_plomeros_contactados:
         return set()
     return set(filter(None, s.ids_plomeros_contactados.split(",")))
+
 
 def actualizar_activos(db: Session, id_solicitud: int, ids: list[int]) -> None:
     """Actualiza quiénes tienen la solicitud activa ahora mismo."""
@@ -150,6 +158,7 @@ def actualizar_activos(db: Session, id_solicitud: int, ids: list[int]) -> None:
     s.fecha_ultimo_envio    = datetime.now()
     s.intentos_reasignacion = (s.intentos_reasignacion or 0) + 1
     db.commit()
+
 
 def obtener_activos(db: Session, id_solicitud: int) -> set[str]:
     s = obtener_por_id(db, id_solicitud)

@@ -923,8 +923,9 @@ function ScreenEstado({ solicitud, onNav }) {
     if (!rating || !solicitud?.id_solicitud) return;
     setLoading(true); setError("");
     try {
-      await api.post(`/calificaciones/${solicitud.id_solicitud}`, null, {
-        params: { estrellas: rating, ...(comentario ? { comentario } : {}) },
+      await api.post(`/calificaciones/${solicitud.id_solicitud}`, {
+        estrellas: rating,
+        comentario: comentario || null,
       });
       setValorado(true);
     } catch (e) {
@@ -1413,7 +1414,7 @@ function ScreenTrabajosFinalizados({ historial, loading, onSolicitarDeNuevo }) {
   const finalizados = historial
     .filter(h => {
       const e = (h.estado || "").toUpperCase();
-      return e === "COMPLETADO" || e === "FINALIZADO";
+      return e === "completada" || e === "pendiente_calificacion";
     })
     .sort((a, b) => new Date(b.fecha) - new Date(a.fecha));
 
@@ -1422,8 +1423,9 @@ function ScreenTrabajosFinalizados({ historial, loading, onSolicitarDeNuevo }) {
     if (!stars) return;
     setLoadingCal(prev => ({ ...prev, [h.id_solicitud]: true }));
     try {
-      await api.post(`/calificaciones/${h.id_solicitud}`, null, {
-        params: { estrellas: stars, ...(comentario[h.id_solicitud] ? { comentario: comentario[h.id_solicitud] } : {}) },
+      await api.post(`/calificaciones/${h.id_solicitud}`, {
+        estrellas: stars,
+        comentario: comentario[h.id_solicitud] || null,
       });
       setValorado(prev => ({ ...prev, [h.id_solicitud]: true }));
     } catch (e) {
