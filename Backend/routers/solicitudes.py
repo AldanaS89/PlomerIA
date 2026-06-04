@@ -47,21 +47,6 @@ def cancelar_solicitud(
 ):
     return solicitud_service.cancelar(db, id_solicitud, id_usuario)
 
-
-# ── PLOMERO ───────────────────────────────────────────────────────────────────
-@router.get("/plomero/me")
-def mis_solicitudes_plomero(
-    db: Session = Depends(get_db),
-    id_plomero: int = Depends(get_plomero_actual),
-):
-    print("PLOMERO LOGUEADO:", id_plomero)
-
-    return solicitud_service.listar_por_plomero(
-        db,
-        id_plomero
-    )
-
-
 @router.patch("/{id_solicitud}/aceptar")
 def aceptar(
     id_solicitud: int,
@@ -69,6 +54,14 @@ def aceptar(
     id_plomero: int = Depends(get_plomero_actual),
 ):
     return solicitud_service.aceptar(db, id_solicitud, id_plomero)
+
+@router.patch("/{id_solicitud}/rechazar")
+def rechazar(
+    id_solicitud: int,
+    db: Session = Depends(get_db),
+    id_plomero: int = Depends(get_plomero_actual),
+):
+    return solicitud_service.rechazar(db, id_solicitud, id_plomero)
 
 
 @router.patch("/{id_solicitud}/en_camino")
@@ -78,15 +71,6 @@ def en_camino(
     id_plomero: int = Depends(get_plomero_actual),
 ):
     return solicitud_service.marcar_en_camino(db, id_solicitud, id_plomero)
-
-
-@router.patch("/{id_solicitud}/rechazar")
-def rechazar(
-    id_solicitud: int,
-    db: Session = Depends(get_db),
-    id_plomero: int = Depends(get_plomero_actual),
-):
-    return solicitud_service.rechazar(db, id_solicitud, id_plomero)
 
 
 @router.patch("/{id_solicitud}/completar")
@@ -105,6 +89,22 @@ def cancelar_plomero(
     id_plomero: int = Depends(get_plomero_actual),
 ):
     return solicitud_service.cancelar_plomero(db, id_solicitud, id_plomero)
+
+
+# ── PLOMERO ───────────────────────────────────────────────────────────────────
+@router.get("/plomero/me")
+def mis_solicitudes_plomero(
+    db: Session = Depends(get_db),
+    id_plomero: int = Depends(get_plomero_actual),
+):
+    print("PLOMERO LOGUEADO:", id_plomero)
+
+    return solicitud_service.listar_por_plomero(
+        db,
+        id_plomero
+    )
+
+
 
 
 # ── DINÁMICA AL FINAL ─────────────────────────────────────────────────────────
