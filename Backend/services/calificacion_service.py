@@ -1,34 +1,38 @@
 # services/calificacion_service.py
 """
-Sistema de calificación bidireccional para PlomerIA.
+Sistema de calificación bidireccional — PlomerIA.
 
-Flujo normal:
-  1. El plomero marca TERMINADO → solicitud pasa a PENDIENTE_CALIFICACION
-  2. Ambos actores pueden calificar mientras el estado sea PENDIENTE_CALIFICACION
-  3. Cuando LOS DOS calificaron → solicitud pasa a COMPLETADA
+FLUJO NORMAL:
+  1. Plomero marca TERMINADO
+     → solicitud pasa a PENDIENTE_CALIFICACION
+     → se guarda fecha_vencimiento_calificacion = ahora + 72hs
+     → al plomero se le muestra inmediatamente las estrellas para calificar al cliente
+  2. Cliente tiene 72hs para calificar al plomero (con comentario opcional)
+  3. Plomero tiene 72hs para calificar al cliente (solo estrellas, sin texto)
+  4. Cuando LOS DOS calificaron → solicitud pasa a COMPLETADA
+  5. Si alguno no califica antes del vencimiento → el scheduler registra
+     5 estrellas automáticas y cierra la solicitud
 
-Penalizaciones por cancelación (aplica igual para cliente y plomero):
-  La penalización NO es una resta directa de puntos.
-  Es una calificación automática que el SISTEMA registra y entra
-  al promedio exactamente igual que una calificación real de otro usuario.
+PENALIZACIONES POR CANCELACIÓN:
+  No son una resta directa. Son calificaciones automáticas del sistema
+  que entran al promedio igual que una calificación real.
 
-  Tabla de calificaciones automáticas:
   ┌──────────────────────────┬──────────────────┬──────────────────────┐
   │ Tiempo al turno          │ Sin mensajería   │ Con mensajería       │
   ├──────────────────────────┼──────────────────┼──────────────────────┤
-  │ Más de 24hs              │ 1 estrella       │ 2 estrellas          │
-  │ Menos de 24hs            │ 0.5 estrellas    │ 1.5 estrellas        │
+  │ Más de 24hs              │ 1 ⭐             │ 2 ⭐                │
+  │ Menos de 24hs            │ 0.5 ⭐           │ 1.5 ⭐              │
   └──────────────────────────┴──────────────────┴──────────────────────┘
 
-  Comunicarse antes de cancelar mejora la calificación automática
-  porque demuestra responsabilidad.
+POLIMORFISMO:
+  Las reglas son idénticas para cliente y plomero.
+  Las funciones reciben rol_actor="cliente"|"plomero" y actúan en consecuencia
+  sin duplicar lógica. La misma función registra, calcula y penaliza a ambos.
 
-  El promedio base arranca en 5 (cuenta como 1 trabajo base).
-  Ejemplo: 3 trabajos reales + 1 cancelación sin aviso a menos de 24hs:
-  → (5_base + 5 + 4 + 3 + 0.5) / 5 = 3.5
-
+PROMEDIO:
+  Arranca en 5.0 (cuenta como 1 trabajo base en el denominador).
+  Suma al promedio: trabajos calificados + penalizaciones por cancelación.
   3 cancelaciones consecutivas → suspensión automática.
-  El contador se resetea con cada trabajo completado exitosamente.
 """
 
 import logging
@@ -48,21 +52,23 @@ from repositories import (
 
 logger = logging.getLogger(__name__)
 
+# ─────────────────────────────────────────────
+# CONSTANTES
+# ─────────────────────────────────────────────
+
+PEN_SIN_MSG_MAS_24H   = 1.0
+PEN_SIN_MSG_MENOS_24H = 0.5
+PEN_CON_MSG_MAS_24H   = 2.0
+PEN_CON_MSG_MENOS_24H = 1.5
+
+CANCELACIONES_PARA_SUSPENSION  = 3
+HORAS_PARA_CALIFICAR           = 72   # plazo para calificar post-trabajo
+HORAS_ALERTA_CALIFICACION      = 48   # cuándo mandar el recordatorio
+ESTRELLAS_VENCIMIENTO          = 5.0  # automáticas si no califican a tiempo
+
 
 # ─────────────────────────────────────────────
-# CONSTANTES — calificación automática por cancelación
-# ─────────────────────────────────────────────
-
-PEN_SIN_MSG_MAS_24H   = 1.0   # sin aviso, canceló con más de 24hs
-PEN_SIN_MSG_MENOS_24H = 0.5   # sin aviso, canceló con menos de 24hs
-PEN_CON_MSG_MAS_24H   = 2.0   # avisó, canceló con más de 24hs
-PEN_CON_MSG_MENOS_24H = 1.5   # avisó, canceló con menos de 24hs
-
-CANCELACIONES_PARA_SUSPENSION = 3
-
-
-# ─────────────────────────────────────────────
-# HELPERS DE PENALIZACIÓN
+# HELPERS — penalización
 # ─────────────────────────────────────────────
 
 def _hubo_comunicacion(db: Session, id_solicitud: int) -> bool:
@@ -71,10 +77,6 @@ def _hubo_comunicacion(db: Session, id_solicitud: int) -> bool:
 
 
 def _horas_al_turno(solicitud) -> float | None:
-    """
-    Horas que faltan hasta el turno. Usa fecha_trabajo si existe,
-    sino parsea turno_solicitado. Devuelve None si no hay turno.
-    """
     if solicitud.fecha_trabajo:
         return (solicitud.fecha_trabajo - datetime.now()).total_seconds() / 3600
 
@@ -100,10 +102,6 @@ def _horas_al_turno(solicitud) -> float | None:
 
 
 def _estrellas_automaticas(horas: float | None, hubo_msg: bool) -> float:
-    """
-    Determina las estrellas de la calificación automática.
-    Sin turno asignado aplica la variante de menos de 24hs por precaución.
-    """
     if horas is None or horas <= 24:
         return PEN_CON_MSG_MENOS_24H if hubo_msg else PEN_SIN_MSG_MENOS_24H
     return PEN_CON_MSG_MAS_24H if hubo_msg else PEN_SIN_MSG_MAS_24H
@@ -114,78 +112,28 @@ def _comentario_automatico(
 ) -> str:
     actor  = "El cliente" if rol_actor == "cliente" else "El profesional"
     tiempo = (
-        "con más de 24hs de anticipación"   if horas and horas > 24
-        else "con menos de 24hs de anticipación" if horas is not None
+        "con mas de 24hs de anticipacion"    if horas and horas > 24
+        else "con menos de 24hs de anticipacion" if horas is not None
         else "sin turno confirmado"
     )
-    aviso  = "habiendo avisado por mensajería" if hubo_msg else "sin comunicación previa"
-    return f"Cancelación — {actor} canceló {tiempo}, {aviso}."
+    aviso = "habiendo avisado por mensajeria" if hubo_msg else "sin comunicacion previa"
+    return f"Cancelacion — {actor} cancelo {tiempo}, {aviso}."
 
 
 # ─────────────────────────────────────────────
-# PENALIZACIÓN POR CANCELACIÓN
+# HELPERS — promedio (polimórfico)
 # ─────────────────────────────────────────────
 
-def penalizar_por_cancelacion(
-    db:        Session,
-    solicitud,
-    id_actor:  int,
-    rol_actor: str,    # "cliente" | "plomero"
+def _recalcular_promedio(
+    db: Session, solicitud, rol_evaluado: str
 ) -> float:
     """
-    Registra una calificación automática del sistema por cancelación.
-    Entra al promedio igual que una calificación real de otro usuario.
-    Aplica igual para cliente y para plomero.
-    Devuelve las estrellas registradas para informar al frontend.
+    Recalcula y persiste el promedio de quien fue evaluado.
+    rol_evaluado == "plomero" → recalcula al plomero
+    rol_evaluado == "cliente" → recalcula al cliente
+    La lógica es idéntica para los dos actores.
     """
-    hubo_msg      = _hubo_comunicacion(db, solicitud.id_solicitud)
-    horas         = _horas_al_turno(solicitud)
-    estrellas_auto = _estrellas_automaticas(horas, hubo_msg)
-
-    # autor_rol con prefijo "sistema_" para distinguir de calificaciones reales
-    calificacion_repository.registrar_calificacion(
-        db           = db,
-        id_solicitud = solicitud.id_solicitud,
-        id_plomero   = solicitud.id_plomero,
-        id_cliente   = solicitud.id_usuario,
-        autor_rol    = f"sistema_{rol_actor}",
-        estrellas    = estrellas_auto,
-        comentario   = _comentario_automatico(horas, hubo_msg, rol_actor),
-    )
-
-    # Recalcular promedio del penalizado (la calificación ya fue insertada)
-    _recalcular_promedio_penalizado(db, solicitud, rol_actor)
-
-    # Controlar suspensión
-    _incrementar_cancelaciones(db, id_actor, rol_actor)
-
-    logger.info(
-        "Penalizacion automatica: %s id=%s — %.1f estrellas (msg=%s, horas=%s)",
-        rol_actor, id_actor, estrellas_auto, hubo_msg,
-        round(horas, 1) if horas is not None else "sin turno",
-    )
-
-    return estrellas_auto
-
-
-def _recalcular_promedio_penalizado(
-    db: Session, solicitud, rol_actor: str
-) -> None:
-    """
-    Recalcula el promedio del actor penalizado incluyendo la calificación
-    automática que acaba de registrarse. La penalización cuenta como
-    trabajo en el denominador para que impacte realmente en el promedio.
-    """
-    if rol_actor == "cliente":
-        nueva   = calificacion_repository.calcular_promedio_cliente(
-            db, solicitud.id_usuario
-        )
-        cliente = usuario_repository.buscar_por_id(db, solicitud.id_usuario)
-        if cliente:
-            cliente.puntuacion     = nueva
-            cliente.total_trabajos = (cliente.total_trabajos or 0) + 1
-            db.commit()
-    else:
+    if rol_evaluado == "plomero":
         nueva   = calificacion_repository.calcular_promedio_plomero(
             db, solicitud.id_plomero
         )
@@ -195,6 +143,17 @@ def _recalcular_promedio_penalizado(
                 db, solicitud.id_plomero, nueva,
                 (plomero.total_trabajos or 0) + 1,
             )
+    else:
+        nueva   = calificacion_repository.calcular_promedio_cliente(
+            db, solicitud.id_usuario
+        )
+        cliente = usuario_repository.buscar_por_id(db, solicitud.id_usuario)
+        if cliente:
+            cliente.puntuacion     = nueva
+            cliente.total_trabajos = (cliente.total_trabajos or 0) + 1
+            db.commit()
+
+    return nueva
 
 
 def _incrementar_cancelaciones(
@@ -202,7 +161,7 @@ def _incrementar_cancelaciones(
 ) -> None:
     """
     Incrementa cancelaciones_consecutivas y suspende al llegar a 3.
-    Funciona igual para cliente y plomero (duck typing).
+    Funciona igual para cliente y plomero — duck typing.
     """
     persona = (
         usuario_repository.buscar_por_id(db, id_actor)
@@ -236,39 +195,78 @@ def resetear_cancelaciones(db: Session, persona) -> None:
 
 
 # ─────────────────────────────────────────────
-# CALIFICACIÓN REAL — función central polimórfica
+# PENALIZACIÓN POR CANCELACIÓN
 # ─────────────────────────────────────────────
 
-def _actualizar_puntuacion_evaluado(
-    db: Session, solicitud, autor_rol: str
+def penalizar_por_cancelacion(
+    db:        Session,
+    solicitud,
+    id_actor:  int,
+    rol_actor: str,    # "cliente" | "plomero"
 ) -> float:
     """
-    Recalcula y persiste la puntuación de quien fue evaluado.
-    autor_rol == "cliente"  → evaluado es el plomero
-    autor_rol == "plomero"  → evaluado es el cliente
+    Registra una calificación automática del sistema por cancelación.
+    Entra al promedio igual que una calificación real.
+    Aplica las mismas reglas para cliente y plomero.
+    Devuelve las estrellas registradas.
     """
-    if autor_rol == "cliente":
-        nueva   = calificacion_repository.calcular_promedio_plomero(
-            db, solicitud.id_plomero
-        )
-        plomero = plomero_repository.buscar_por_id(db, solicitud.id_plomero)
-        if plomero:
-            plomero_repository.actualizar_puntuacion(
-                db, solicitud.id_plomero, nueva,
-                (plomero.total_trabajos or 0) + 1,
-            )
-    else:
-        nueva   = calificacion_repository.calcular_promedio_cliente(
-            db, solicitud.id_usuario
-        )
-        cliente = usuario_repository.buscar_por_id(db, solicitud.id_usuario)
-        if cliente:
-            cliente.puntuacion     = nueva
-            cliente.total_trabajos = (cliente.total_trabajos or 0) + 1
-            db.commit()
+    hubo_msg       = _hubo_comunicacion(db, solicitud.id_solicitud)
+    horas          = _horas_al_turno(solicitud)
+    estrellas_auto = _estrellas_automaticas(horas, hubo_msg)
 
-    return nueva
+    calificacion_repository.registrar_calificacion(
+        db           = db,
+        id_solicitud = solicitud.id_solicitud,
+        id_plomero   = solicitud.id_plomero,
+        id_cliente   = solicitud.id_usuario,
+        autor_rol    = f"sistema_{rol_actor}",
+        estrellas    = estrellas_auto,
+        comentario   = _comentario_automatico(horas, hubo_msg, rol_actor),
+    )
 
+    # El penalizado es quien canceló
+    _recalcular_promedio(db, solicitud, rol_actor)
+    _incrementar_cancelaciones(db, id_actor, rol_actor)
+
+    logger.info(
+        "Penalizacion automatica: %s id=%s — %.1f estrellas (msg=%s, horas=%s)",
+        rol_actor, id_actor, estrellas_auto, hubo_msg,
+        round(horas, 1) if horas is not None else "sin turno",
+    )
+
+    return estrellas_auto
+
+
+# ─────────────────────────────────────────────
+# ACTIVAR PERÍODO DE CALIFICACIÓN
+# ─────────────────────────────────────────────
+
+def activar_periodo_calificacion(
+    db: Session, id_solicitud: int
+) -> None:
+    """
+    Llamado por solicitud_service cuando el plomero marca TERMINADO.
+    Guarda la fecha de vencimiento (ahora + 72hs) en la solicitud.
+    """
+    solicitud = solicitud_repository.obtener_por_id(db, id_solicitud)
+    if not solicitud:
+        return
+
+    solicitud.fecha_vencimiento_calificacion = (
+        datetime.now() + timedelta(hours=HORAS_PARA_CALIFICAR)
+    )
+    db.commit()
+
+    logger.info(
+        "Periodo de calificacion activado para solicitud %s — vence %s",
+        id_solicitud,
+        solicitud.fecha_vencimiento_calificacion.strftime("%d/%m/%Y %H:%M"),
+    )
+
+
+# ─────────────────────────────────────────────
+# CALIFICACIÓN REAL — función central polimórfica
+# ─────────────────────────────────────────────
 
 def _ambos_calificaron(db: Session, id_solicitud: int) -> bool:
     return (
@@ -283,12 +281,17 @@ def registrar_calificacion(
     id_solicitud: int,
     id_autor:     int,
     rol_autor:    str,          # "cliente" | "plomero"
-    estrellas:    int,
+    estrellas:    float,
     comentario:   str | None = None,
 ) -> dict:
     """
-    Función central de calificación. Funciona igual para cliente y plomero —
-    solo cambia quién evalúa a quién. La lógica de validación es idéntica.
+    Función central de calificación — polimórfica.
+    Misma lógica de validación para cliente y plomero.
+    Solo cambia quién evalúa a quién:
+      rol_autor="cliente" → evalúa al plomero
+      rol_autor="plomero" → evalúa al cliente (solo estrellas, sin reseña)
+
+    Si los dos calificaron → solicitud pasa a COMPLETADA.
     """
     solicitud = solicitud_repository.obtener_por_id(db, id_solicitud)
     if not solicitud:
@@ -297,16 +300,21 @@ def registrar_calificacion(
     if solicitud.estado != EstadoSolicitud.PENDIENTE_CALIFICACION:
         raise HTTPException(
             status_code=400,
-            detail="Solo podés calificar trabajos pendientes de calificación",
+            detail="Solo podes calificar trabajos pendientes de calificacion",
         )
 
+    # Verificar que el autor pertenece a esta solicitud
     if rol_autor == "cliente" and solicitud.id_usuario != id_autor:
-        raise HTTPException(status_code=403, detail="No podés calificar este trabajo")
+        raise HTTPException(status_code=403, detail="No podes calificar este trabajo")
     if rol_autor == "plomero" and solicitud.id_plomero != id_autor:
-        raise HTTPException(status_code=403, detail="No podés calificar este trabajo")
+        raise HTTPException(status_code=403, detail="No podes calificar este trabajo")
 
+    # Evitar doble calificación
     if calificacion_repository.ya_califico(db, id_solicitud, rol_autor):
         raise HTTPException(status_code=400, detail="Ya calificaste este trabajo")
+
+    # El plomero no escribe reseña — solo estrellas
+    comentario_final = None if rol_autor == "plomero" else comentario
 
     calificacion_repository.registrar_calificacion(
         db           = db,
@@ -315,10 +323,12 @@ def registrar_calificacion(
         id_cliente   = solicitud.id_usuario,
         autor_rol    = rol_autor,
         estrellas    = estrellas,
-        comentario   = comentario,
+        comentario   = comentario_final,
     )
 
-    nueva_puntuacion = _actualizar_puntuacion_evaluado(db, solicitud, rol_autor)
+    # El evaluado es el opuesto al autor
+    rol_evaluado   = "plomero" if rol_autor == "cliente" else "cliente"
+    nueva_puntuacion = _recalcular_promedio(db, solicitud, rol_evaluado)
 
     if _ambos_calificaron(db, id_solicitud):
         solicitud_repository.cambiar_estado(
@@ -336,3 +346,25 @@ def registrar_calificacion(
         "estado_solicitud":  estado_resultante,
         "ambos_calificaron": estado_resultante == "completada",
     }
+
+
+# Alias para compatibilidad con el router actual
+def registrar_calificacion_post_servicio(
+    db:           Session,
+    id_solicitud: int,
+    id_cliente:   int,
+    estrellas:    float,
+    comentario:   str | None = None,
+) -> dict:
+    """
+    Wrapper para la ruta del cliente — mantiene compatibilidad
+    con el router existente sin duplicar lógica.
+    """
+    return registrar_calificacion(
+        db           = db,
+        id_solicitud = id_solicitud,
+        id_autor     = id_cliente,
+        rol_autor    = "cliente",
+        estrellas    = estrellas,
+        comentario   = comentario,
+    )

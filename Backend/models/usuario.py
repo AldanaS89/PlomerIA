@@ -1,5 +1,5 @@
 # models/usuario.py
-from sqlalchemy import Column, Integer, String, Boolean
+from sqlalchemy import Column, Integer, String, Boolean, Float
 from database import Base
 from models.personaMixin import PersonaMixin, PersonaBase
 
@@ -7,11 +7,16 @@ from models.personaMixin import PersonaMixin, PersonaBase
 class Usuario(PersonaMixin, Base):
     __tablename__ = "usuarios"
 
-    id_usuario               = Column(Integer, primary_key=True, index=True)
-    direccion                = Column(String)
-    rol                      = Column(String, default="cliente")
+    id_usuario                 = Column(Integer, primary_key=True, index=True)
+    direccion                  = Column(String)
+    rol                        = Column(String, default="cliente")
     cancelaciones_consecutivas = Column(Integer, default=0)
-    suspendido               = Column(Boolean, default=False)
+    suspendido                 = Column(Boolean, default=False)
+
+    # Reputación del cliente — evaluada por los plomeros
+    # Arranca en 5.0 por defecto (mismo criterio que el plomero)
+    puntuacion     = Column(Float,   default=5.0)
+    total_trabajos = Column(Integer, default=0)
 
     def get_id(self) -> int:
         return self.id_usuario

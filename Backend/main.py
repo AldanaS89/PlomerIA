@@ -1,3 +1,4 @@
+# main.py
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
@@ -14,6 +15,7 @@ from routers import (
     calificaciones_routes,
 )
 from routers.mensajes_router import router as mensajes_router
+from services.scheduler_service import iniciar_scheduler
 
 app = FastAPI(title="PlomerIA API")
 
@@ -94,6 +96,13 @@ app.include_router(
 app.include_router(chat_ws_router)
 
 # ─────────────────────────────
+# SCHEDULER — tareas en segundo plano
+# ─────────────────────────────
+@app.on_event("startup")
+def startup_scheduler():
+    iniciar_scheduler()
+
+# ─────────────────────────────
 # HEALTH CHECK
 # ─────────────────────────────
 @app.get("/")
@@ -102,7 +111,6 @@ def root():
         "status": "ok",
         "message": "PlomerIA API running 🚀"
     }
-
 
 # ─────────────────────────────
 # RUN

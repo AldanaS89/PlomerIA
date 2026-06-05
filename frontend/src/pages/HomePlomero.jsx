@@ -573,45 +573,118 @@ function ScreenActivos({ activos, onEnCamino, onCompletar, onCancelar, loading }
 }
 
 // ─── SCREEN: AGENDA ───────────────────────────────────────────────────────────
-function ScreenAgenda({ activos }) {
+// activos  = trabajos en curso (en_progreso, en_camino)  → azul
+// historial = trabajos completados                        → verde
+// Cancelados no aparecen (se excluyen desde cargarSolicitudes)
+
+function _fechaISO(s) {
+  // Devuelve "YYYY-MM-DD" o null.
+  // Prioridad: fecha_trabajo (DateTime del backend) → turno_solicitado → fecha de creación
+  if (s.fecha_trabajo) return s.fecha_trabajo.split("T")[0];
+  if (s.turno_solicitado) {
+    try {
+      const IDX = { Lun:1, Mar:2, Mie:3, Jue:4, Vie:5, Sab:6, Dom:0 };
+      const partes = s.turno_solicitado.split("_");
+      const diaIdx = IDX[partes[0]] ?? 1;
+      const hora   = partes[2] ? parseInt(partes[2]) : 9;
+      const hoy    = new Date();
+      let diff = diaIdx - hoy.getDay();
+      if (diff <= 0) diff += 7;
+      const target = new Date(hoy);
+      target.setDate(hoy.getDate() + diff);
+      target.setHours(hora, 0, 0, 0);
+      return target.toISOString().split("T")[0];
+    } catch { return null; }
+  }
+  return null;
+}
+
+function ScreenAgenda({ activos, historial }) {
   const hoy = new Date();
-  const [year,  setYear]  = useState(hoy.getFullYear());
-  const [month, setMonth] = useState(hoy.getMonth());
+  const [year,     setYear]     = useState(hoy.getFullYear());
+  const [month,    setMonth]    = useState(hoy.getMonth());
   const [selected, setSelected] = useState(null);
 
   const firstDay    = new Date(year, month, 1).getDay();
   const daysInMonth = new Date(year, month+1, 0).getDate();
   const fmt = d => `${year}-${String(month+1).padStart(2,"0")}-${String(d).padStart(2,"0")}`;
 
-  const fechasOcupadas = activos
-    .filter(a => a.turno_solicitado || a.fecha)
-    .reduce((acc, a) => {
-      const fecha = a.turno_solicitado?.split("_")[0]
-        || a.fecha?.split("T")[0];
-      if (fecha) {
-        acc[fecha] = acc[fecha] || [];
-        acc[fecha].push({ descripcion: a.descripcion_raw, tipo: a.etiqueta_ia });
-      }
-      return acc;
-    }, {});
+  // Construir mapa de fechas con sus trabajos y tipo (activo | finalizado)
+  const mapaFechas = {};
 
-  const selectedJobs = selected ? (fechasOcupadas[selected]||[]) : [];
+  (activos || []).forEach(s => {
+    const fecha = _fechaISO(s);
+    if (!fecha) return;
+    if (!mapaFechas[fecha]) mapaFechas[fecha] = [];
+    mapaFechas[fecha].push({
+      tipo:        "activo",
+      descripcion: s.descripcion_raw,
+      etiqueta:    s.etiqueta_ia,
+      cliente:     s.nombre_cliente,
+      direccion:   s.direccion_cliente,
+      hora:        s.turno_solicitado?.split("_")[2]
+                     ? `${s.turno_solicitado.split("_")[2]}:00hs` : null,
+      estado:      s.estado,
+    });
+  });
+
+  (historial || []).forEach(s => {
+    const fecha = _fechaISO(s);
+    if (!fecha) return;
+    if (!mapaFechas[fecha]) mapaFechas[fecha] = [];
+    mapaFechas[fecha].push({
+      tipo:        "finalizado",
+      descripcion: s.descripcion_raw,
+      etiqueta:    s.etiqueta_ia,
+      cliente:     s.nombre_cliente,
+      direccion:   s.direccion_cliente,
+      hora:        s.turno_solicitado?.split("_")[2]
+                     ? `${s.turno_solicitado.split("_")[2]}:00hs` : null,
+      estado:      s.estado,
+    });
+  });
+
+  const selectedJobs = selected ? (mapaFechas[selected] || []) : [];
 
   const prev = () => { if(month===0){setMonth(11);setYear(y=>y-1);}else setMonth(m=>m-1); setSelected(null); };
   const next = () => { if(month===11){setMonth(0);setYear(y=>y+1);}else setMonth(m=>m+1); setSelected(null); };
 
+  // Color del punto/día según contenido:
+  // solo finalizados → verde; alguno activo → azul; mezcla → mitad/mitad → azul (prioridad activo)
+  function colorDia(ds) {
+    const jobs = mapaFechas[ds] || [];
+    if (jobs.length === 0) return null;
+    const tieneActivo = jobs.some(j => j.tipo === "activo");
+    return tieneActivo ? "activo" : "finalizado";
+  }
+
   return (
-    <div style={{ maxWidth:"800px", margin:"0 auto", padding:"28px 24px" }}>
+    <div style={{ maxWidth:"860px", margin:"0 auto", padding:"28px 24px" }}>
       <h1 style={{ fontFamily:"'DM Sans',sans-serif", fontWeight:"800", fontSize:"22px",
-        color:"#0F172A", margin:"0 0 20px" }}>Mi agenda</h1>
+        color:"#0F172A", margin:"0 0 8px" }}>Mi agenda</h1>
+
+      {/* Leyenda de colores */}
+      <div style={{ display:"flex", gap:"16px", marginBottom:"20px", flexWrap:"wrap" }}>
+        {[
+          { color:"#3B82F6", bg:"#EFF6FF", label:"Trabajo pendiente / en curso" },
+          { color:"#16A34A", bg:"#F0FDF4", label:"Trabajo finalizado" },
+        ].map(l => (
+          <div key={l.label} style={{ display:"flex", alignItems:"center", gap:"7px" }}>
+            <div style={{ width:"10px", height:"10px", borderRadius:"50%", background:l.color }}/>
+            <span style={{ fontFamily:"'DM Sans',sans-serif", fontSize:"12px", color:"#64748B" }}>{l.label}</span>
+          </div>
+        ))}
+      </div>
 
       <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:"16px", alignItems:"start" }}>
-        {/* Calendario */}
+
+        {/* ── Calendario ── */}
         <div style={{ background:"#fff", borderRadius:"16px",
           border:"1.5px solid #F1F5F9", padding:"16px",
           boxShadow:"0 4px 20px rgba(0,0,0,0.06)" }}>
 
-          <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:"14px" }}>
+          <div style={{ display:"flex", alignItems:"center",
+            justifyContent:"space-between", marginBottom:"14px" }}>
             <button onClick={prev} style={{ background:"#F1F5F9", border:"none", borderRadius:"8px",
               width:"30px", height:"30px", cursor:"pointer", fontSize:"16px", color:"#475569",
               display:"flex", alignItems:"center", justifyContent:"center" }}>‹</button>
@@ -622,43 +695,57 @@ function ScreenAgenda({ activos }) {
               display:"flex", alignItems:"center", justifyContent:"center" }}>›</button>
           </div>
 
-          <div style={{ display:"grid", gridTemplateColumns:"repeat(7,1fr)", gap:"2px", marginBottom:"6px" }}>
+          {/* Días de semana */}
+          <div style={{ display:"grid", gridTemplateColumns:"repeat(7,1fr)",
+            gap:"2px", marginBottom:"6px" }}>
             {DAYS_FULL.map(d => (
               <div key={d} style={{ textAlign:"center", fontSize:"10px", fontWeight:"700",
                 color:"#94A3B8", fontFamily:"'DM Sans',sans-serif", padding:"3px 0" }}>{d}</div>
             ))}
           </div>
 
+          {/* Grilla de días */}
           <div style={{ display:"grid", gridTemplateColumns:"repeat(7,1fr)", gap:"3px" }}>
             {Array.from({length:firstDay}).map((_,i)=><div key={`e${i}`}/>)}
             {Array.from({length:daysInMonth}).map((_,i)=>{
-              const d   = i+1;
-              const ds  = fmt(d);
-              const isHoy = new Date(year,month,d).toDateString()===hoy.toDateString();
-              const tieneJobs = !!fechasOcupadas[ds];
-              const isSel = selected===ds;
+              const d      = i + 1;
+              const ds     = fmt(d);
+              const isHoy  = new Date(year,month,d).toDateString() === hoy.toDateString();
+              const color  = colorDia(ds);   // "activo" | "finalizado" | null
+              const isSel  = selected === ds;
+              const esActivo    = color === "activo";
+              const esFinalizado = color === "finalizado";
+
               return (
-                <button key={d} onClick={()=> setSelected(isSel ? null : ds)}
+                <button key={d}
+                  onClick={() => color ? setSelected(isSel ? null : ds) : null}
                   style={{
                     border:"none", borderRadius:"8px", padding:"6px 2px",
-                    cursor: tieneJobs ? "pointer" : "default",
-                    fontFamily:"'DM Sans',sans-serif",
-                    fontWeight: isHoy||tieneJobs ? "800" : "400", fontSize:"12px",
-                    background: isSel ? "#3B82F6"
-                      : tieneJobs ? "#EFF6FF"
-                      : isHoy ? "#F0FDF4"
+                    cursor: color ? "pointer" : "default",
+                    fontFamily:"'DM Sans',sans-serif", position:"relative",
+                    fontWeight: isHoy || color ? "800" : "400", fontSize:"12px",
+                    transition:"all 0.15s",
+                    background: isSel
+                      ? (esActivo ? "#3B82F6" : "#16A34A")
+                      : esActivo    ? "#EFF6FF"
+                      : esFinalizado ? "#F0FDF4"
+                      : isHoy       ? "#FEF9C3"
                       : "transparent",
-                    color: isSel ? "#fff"
-                      : isHoy ? "#16A34A"
-                      : tieneJobs ? "#1D4ED8"
+                    color: isSel    ? "#fff"
+                      : esActivo    ? "#1D4ED8"
+                      : esFinalizado ? "#15803D"
+                      : isHoy       ? "#92400E"
                       : "#94A3B8",
-                    position:"relative", transition:"all 0.15s",
                   }}>
                   {d}
-                  {tieneJobs && !isSel && (
-                    <div style={{ position:"absolute", bottom:"2px", left:"50%",
+                  {/* Punto de color en días con trabajos (cuando no está seleccionado) */}
+                  {color && !isSel && (
+                    <div style={{
+                      position:"absolute", bottom:"2px", left:"50%",
                       transform:"translateX(-50%)", width:"4px", height:"4px",
-                      borderRadius:"50%", background:"#3B82F6" }}/>
+                      borderRadius:"50%",
+                      background: esActivo ? "#3B82F6" : "#16A34A",
+                    }}/>
                   )}
                 </button>
               );
@@ -666,25 +753,27 @@ function ScreenAgenda({ activos }) {
           </div>
         </div>
 
-        {/* Panel detalle */}
+        {/* ── Panel detalle ── */}
         <div style={{ background:"#fff", borderRadius:"16px",
           border:"1.5px solid #F1F5F9", padding:"16px",
-          boxShadow:"0 4px 20px rgba(0,0,0,0.06)", minHeight:"200px" }}>
+          boxShadow:"0 4px 20px rgba(0,0,0,0.06)", minHeight:"240px" }}>
+
           {!selected ? (
             <div style={{ display:"flex", flexDirection:"column", alignItems:"center",
-              justifyContent:"center", height:"100%", minHeight:"180px", textAlign:"center" }}>
-              <div style={{ fontSize:"32px", marginBottom:"10px" }}>📅</div>
+              justifyContent:"center", height:"100%", minHeight:"200px", textAlign:"center" }}>
+              <div style={{ fontSize:"36px", marginBottom:"10px" }}>📅</div>
               <div style={{ fontFamily:"'DM Sans',sans-serif", fontWeight:"700",
                 fontSize:"14px", color:"#94A3B8" }}>Seleccioná un día</div>
               <div style={{ fontFamily:"'DM Sans',sans-serif", fontSize:"12px",
-                color:"#CBD5E1", lineHeight:"1.5", marginTop:"6px" }}>
-                Los días con punto azul tienen trabajos asignados
+                color:"#CBD5E1", lineHeight:"1.6", marginTop:"6px" }}>
+                Los días marcados tienen trabajos asignados
               </div>
             </div>
           ) : (
             <>
+              {/* Título del día seleccionado */}
               <div style={{ fontFamily:"'DM Sans',sans-serif", fontWeight:"800",
-                fontSize:"15px", color:"#0F172A", marginBottom:"4px" }}>
+                fontSize:"15px", color:"#0F172A", marginBottom:"2px" }}>
                 {new Date(selected + "T12:00:00").toLocaleDateString("es-AR", {
                   weekday:"long", day:"numeric", month:"long"
                 })}
@@ -692,25 +781,84 @@ function ScreenAgenda({ activos }) {
               <div style={{ fontFamily:"'DM Sans',sans-serif", fontSize:"12px",
                 color:"#94A3B8", marginBottom:"14px" }}>
                 {selectedJobs.length > 0
-                  ? `${selectedJobs.length} trabajo${selectedJobs.length!==1?"s":""} este día`
-                  : "Sin trabajos asignados"}
+                  ? `${selectedJobs.length} trabajo${selectedJobs.length !== 1 ? "s" : ""}`
+                  : "Sin trabajos"}
               </div>
+
               {selectedJobs.length === 0 ? (
-                <div style={{ background:"#F8FAFC", borderRadius:"10px", padding:"16px", textAlign:"center" }}>
-                  <div style={{ fontFamily:"'DM Sans',sans-serif", fontSize:"13px", color:"#94A3B8" }}>
-                    Día libre 🎉
-                  </div>
+                <div style={{ background:"#F8FAFC", borderRadius:"10px",
+                  padding:"20px", textAlign:"center" }}>
+                  <div style={{ fontFamily:"'DM Sans',sans-serif",
+                    fontSize:"13px", color:"#94A3B8" }}>Día libre 🎉</div>
                 </div>
-              ) : selectedJobs.map((j,i) => (
-                <div key={i} style={{ background:"#F8FAFC", borderRadius:"10px",
-                  padding:"12px", border:"1px solid #E2E8F0", marginBottom:"8px" }}>
-                  <div style={{ fontFamily:"'DM Sans',sans-serif", fontWeight:"700",
-                    fontSize:"13px", color:"#0F172A", marginBottom:"6px", lineHeight:"1.4" }}>
-                    {j.descripcion}
-                  </div>
-                  <Badge label={j.tipo}/>
-                </div>
-              ))}
+              ) : (
+                selectedJobs.map((j, i) => {
+                  const esActivo = j.tipo === "activo";
+                  return (
+                    <div key={i} style={{
+                      borderRadius:"12px", padding:"14px",
+                      border:`1.5px solid ${esActivo ? "#BFDBFE" : "#BBF7D0"}`,
+                      background: esActivo ? "#EFF6FF" : "#F0FDF4",
+                      marginBottom:"10px",
+                    }}>
+                      {/* Tipo de trabajo */}
+                      <div style={{ display:"flex", alignItems:"center",
+                        gap:"8px", marginBottom:"8px" }}>
+                        <span style={{
+                          fontSize:"10px", fontWeight:"800", letterSpacing:"0.6px",
+                          textTransform:"uppercase", padding:"2px 8px", borderRadius:"20px",
+                          background: esActivo ? "#DBEAFE" : "#DCFCE7",
+                          color: esActivo ? "#1D4ED8" : "#15803D",
+                          fontFamily:"'DM Sans',sans-serif",
+                        }}>
+                          {esActivo ? "📋 Por realizar" : "✅ Finalizado"}
+                        </span>
+                        {j.hora && (
+                          <span style={{ fontFamily:"'DM Sans',sans-serif",
+                            fontSize:"11px", color:"#64748B", fontWeight:"600" }}>
+                            🕐 {j.hora}
+                          </span>
+                        )}
+                      </div>
+
+                      {/* Descripción del problema */}
+                      <div style={{ fontFamily:"'DM Sans',sans-serif", fontWeight:"700",
+                        fontSize:"13px", color:"#0F172A", marginBottom:"8px", lineHeight:"1.5" }}>
+                        "{j.descripcion}"
+                      </div>
+
+                      {/* Datos del cliente */}
+                      <div style={{ display:"flex", flexDirection:"column", gap:"4px" }}>
+                        {j.cliente && (
+                          <div style={{ fontFamily:"'DM Sans',sans-serif",
+                            fontSize:"12px", color:"#475569" }}>
+                            👤 <strong>{j.cliente}</strong>
+                          </div>
+                        )}
+                        {j.direccion && (
+                          <div style={{ fontFamily:"'DM Sans',sans-serif",
+                            fontSize:"12px", color:"#475569" }}>
+                            📍 {j.direccion}
+                          </div>
+                        )}
+                        {!j.direccion && esActivo && (
+                          <div style={{ fontFamily:"'DM Sans',sans-serif",
+                            fontSize:"11px", color:"#94A3B8", fontStyle:"italic" }}>
+                            La dirección se muestra en la pantalla En curso
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Badge especialidad */}
+                      {j.etiqueta && (
+                        <div style={{ marginTop:"8px" }}>
+                          <Badge label={j.etiqueta}/>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })
+              )}
             </>
           )}
         </div>
@@ -922,7 +1070,7 @@ export default function HomePlomero({ onLogout }) {
           onCompletar={handleCompletar} onCancelar={handleCancelar} loading={loading}
         />
       )}
-      {screen==="agenda" && <ScreenAgenda activos={activos}/>}
+      {screen==="agenda" && <ScreenAgenda activos={activos} historial={historial}/>}
       {screen==="historial" && (
         <ScreenHistorial historial={historial} loading={loading} puntuacionPerfil={perfil?.puntuacion}/>
       )}

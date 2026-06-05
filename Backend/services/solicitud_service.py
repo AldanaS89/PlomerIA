@@ -101,11 +101,12 @@ def _to_response(s):
         response["foto_plomero"] = s.plomero.foto_perfil_path
         response["localidad_plomero"] = s.plomero.localidad
 
+    # La dirección solo se muestra mientras el plomero necesita ir al domicilio.
+    # Una vez que marca TERMINADO (→ pendiente_calificacion) ya llegó —
+    # la dirección desaparece para proteger la privacidad del cliente.
     if estado in {
         "en_progreso",
         "en_camino",
-        "pendiente_calificacion",
-        "completada",
     }:
         if s.usuario:
             response["direccion_cliente"] = s.usuario.direccion

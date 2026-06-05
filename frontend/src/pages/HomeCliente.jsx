@@ -602,12 +602,14 @@ function ScreenResultados({ problema, urgencia, idsExcluidos = [], onEnviar }) {
     buscar(filtroGenero, c?.lat, c?.lon);
   }, [filtroGenero]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const toggle = id => setSelec(prev =>
-    prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
-  );
-
-  const setTurno = (idPlomero, turno) =>
+  const setTurno = (idPlomero, turno) => {
     setTurnos(prev => ({ ...prev, [idPlomero]: turno }));
+    if (turno) {
+      setSelec(prev => prev.includes(idPlomero) ? prev : [...prev, idPlomero]);
+    } else {
+      setSelec(prev => prev.filter(x => x !== idPlomero));
+    }
+  };
 
   const handleEnviar = async () => {
     setEnviando(true);
@@ -822,7 +824,7 @@ function ScreenResultados({ problema, urgencia, idsExcluidos = [], onEnviar }) {
                     </div>
 
                     {/* Turno: solo si NO es urgencia */}
-                    {isSelected && !urgencia && (
+                    {!urgencia && (
                       <div onClick={e => e.stopPropagation()}>
                         <TurnoSelector
                           plomero={p}
@@ -846,56 +848,69 @@ function ScreenResultados({ problema, urgencia, idsExcluidos = [], onEnviar }) {
                       </div>
                     )}
 
-                    <button onClick={e => { e.stopPropagation(); toggle(p.id_plomero); }} style={{
-                      background: isSelected
-                        ? "linear-gradient(135deg,#3B82F6,#2563EB)"
-                        : "linear-gradient(135deg,#F8FAFC,#F1F5F9)",
-                      color: isSelected ? "#fff" : "#475569",
-                      border: isSelected ? "none" : "1.5px solid #E2E8F0",
-                      borderRadius: "12px", padding: "10px 8px",
-                      fontFamily: "'DM Sans',sans-serif", fontWeight: "700",
-                      fontSize: "13px", cursor: "pointer", transition: "all 0.18s",
-                    }}>{isSelected ? "✓ Seleccionado" : "Seleccionar"}</button>
+                    {isSelected && turnos[p.id_plomero] && (
+                      <div style={{
+                        background: "linear-gradient(135deg,#F0FDF4,#DCFCE7)",
+                        border: "1.5px solid #86EFAC", borderRadius: "12px",
+                        padding: "9px 12px", display: "flex",
+                        alignItems: "center", gap: "6px",
+                        fontFamily: "'DM Sans',sans-serif", fontSize: "13px",
+                        fontWeight: "700", color: "#15803D",
+                      }}>
+                        <span>✓</span>
+                        <span>Turno elegido — incluido en el envío</span>
+                      </div>
+                    )}
                   </div>
                 );
               })}
             </div>
       }
 
-      {seleccionados.length > 0 && (
-        <div style={{
-          marginTop: "28px", background: "linear-gradient(135deg,#0F172A,#1E3A5F)",
-          borderRadius: "20px", padding: "22px 26px",
-          display: "flex", alignItems: "center",
-          justifyContent: "space-between", gap: "16px", flexWrap: "wrap",
-          boxShadow: "0 8px 32px rgba(15,23,42,0.2)",
-        }}>
-          <div>
-            <div style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "11px",
-              fontWeight: "700", color: "#475569", textTransform: "uppercase",
-              letterSpacing: "0.8px", marginBottom: "6px" }}>
-              {seleccionados.length} profesional{seleccionados.length > 1 ? "es" : ""} seleccionado{seleccionados.length > 1 ? "s" : ""}
-            </div>
+      {/* Barra de envío — siempre visible */}
+      <div style={{
+        marginTop: "28px", background: "linear-gradient(135deg,#0F172A,#1E3A5F)",
+        borderRadius: "20px", padding: "22px 26px",
+        display: "flex", alignItems: "center",
+        justifyContent: "space-between", gap: "16px", flexWrap: "wrap",
+        boxShadow: "0 8px 32px rgba(15,23,42,0.2)",
+      }}>
+        <div>
+          <div style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "11px",
+            fontWeight: "700", textTransform: "uppercase",
+            letterSpacing: "0.8px", marginBottom: "6px",
+            color: seleccionados.length > 0 ? "#94A3B8" : "#475569" }}>
+            {seleccionados.length > 0
+              ? `${seleccionados.length} profesional${seleccionados.length > 1 ? "es" : ""} seleccionado${seleccionados.length > 1 ? "s" : ""}`
+              : "Elegí un turno para seleccionar un profesional"}
+          </div>
+          {seleccionados.length > 0 && (
             <div style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "13px", color: "#94A3B8" }}>
               {urgencia
                 ? "Tienen 30 min para responder · El primero que acepte queda asignado"
                 : "Tienen 3 hs para responder · El primero que acepte queda asignado"}
             </div>
-          </div>
-          <button onClick={handleEnviar} disabled={enviando} style={{
-            background: "linear-gradient(135deg,#22C55E,#16A34A)",
+          )}
+        </div>
+        <button
+          onClick={handleEnviar}
+          disabled={enviando || seleccionados.length === 0}
+          style={{
+            background: seleccionados.length === 0
+              ? "linear-gradient(135deg,#94A3B8,#64748B)"
+              : "linear-gradient(135deg,#22C55E,#16A34A)",
             color: "#fff", border: "none", borderRadius: "14px",
             padding: "13px 26px", fontFamily: "'DM Sans',sans-serif",
-            fontWeight: "800", fontSize: "14px", cursor: enviando ? "default" : "pointer",
-            boxShadow: "0 4px 16px rgba(34,197,94,0.35)", whiteSpace: "nowrap",
-            display: "flex", alignItems: "center", gap: "8px",
-            opacity: enviando ? 0.7 : 1,
+            fontWeight: "800", fontSize: "14px",
+            cursor: (enviando || seleccionados.length === 0) ? "not-allowed" : "pointer",
+            boxShadow: seleccionados.length === 0 ? "none" : "0 4px 16px rgba(34,197,94,0.35)",
+            whiteSpace: "nowrap", display: "flex", alignItems: "center", gap: "8px",
+            opacity: enviando ? 0.7 : 1, transition: "all 0.2s",
           }}>
-            {enviando ? <Spinner size={16} color="#fff" /> : null}
-            Enviar solicitud →
-          </button>
-        </div>
-      )}
+          {enviando ? <Spinner size={16} color="#fff" /> : null}
+          Enviar solicitud →
+        </button>
+      </div>
     </div>
   );
 }
@@ -1347,7 +1362,8 @@ function ScreenMiSolicitud({ historial, loading, onNav, onReSolicitar }) {
   const activas = historial
     .filter(h => {
       const e = (h.estado || "").toLowerCase();
-      return e === "pendiente" || e === "aceptado" || e === "en_progreso" || e === "pendiente_calificacion";
+      return e === "pendiente" || e === "en_progreso" || e === "en_camino"
+        || e === "reasignacion_pendiente" || e === "pendiente_calificacion";
     })
     .sort((a, b) => new Date(b.fecha) - new Date(a.fecha));
 
@@ -1665,7 +1681,7 @@ function useSolicitudNotifs(token) {
       arr.forEach(s => {
         const prev = prevStates.current[s.id_solicitud];
         if (prev && prev !== s.estado) {
-          if (s.estado === "en_progreso" || s.estado === "ACEPTADO") {
+          if (s.estado === "en_progreso") {
             nuevas.push({
               id: Date.now() + s.id_solicitud,
               icon: "✅",
@@ -1675,7 +1691,7 @@ function useSolicitudNotifs(token) {
               leida: false,
             });
           }
-          if (s.estado === "FINALIZADO") {
+          if (s.estado === "pendiente_calificacion") {
             nuevas.push({
               id: Date.now() + s.id_solicitud + 1,
               icon: "🏁",
