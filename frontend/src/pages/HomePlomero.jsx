@@ -1,6 +1,9 @@
 import { useState, useEffect, useCallback } from "react";
 import api from "../services/api";
 import { useAuthStore } from "../store/authStore";
+import ChatWidget from "../components/ChatWidget";
+import BoletaMateriales from "../components/BoletaMateriales";
+import { useNotificaciones } from "../hooks/useNotificaciones";
 
 const BADGE_STYLES = {
   PLOMERIA_GENERAL: { bg:"#EFF6FF", text:"#1D4ED8" },
@@ -93,12 +96,13 @@ function Spinner({ size=20, color="#fff" }) {
 }
 
 // ─── HEADER ──────────────────────────────────────────────────────────────────
-function Header({ screen, onNav, disponible, onToggleDisp, pendientes, user, onLogout }) {
+function Header({ screen, onNav, disponible, onToggleDisp, pendientes, notifCount, user, onLogout }) {
   const tabs = [
     { key:"solicitudes", label:"Solicitudes", icon:"📬", badge:pendientes },
     { key:"activos",     label:"En curso",    icon:"🔧" },
     { key:"agenda",      label:"Mi agenda",   icon:"📅" },
     { key:"historial",   label:"Historial",   icon:"📋" },
+    { key:"alertas",     label:"Alertas",     icon:"🔔", badge:notifCount },
   ];
   return (
     <div style={{ background:"linear-gradient(135deg,#0F172A,#1E3A5F)",
@@ -273,6 +277,20 @@ function ScreenSolicitudes({ solicitudes, onAceptar, onRechazar, disponible, loa
               )}
             </div>
 
+            {/* Diagnóstico técnico de la IA */}
+            {s.diagnostico_ia && (
+              <div style={{ background:"#EFF6FF", border:"1.5px solid #BFDBFE",
+                borderRadius:"12px", padding:"12px 14px", marginBottom:"14px" }}>
+                <div style={{ fontFamily:"'DM Sans',sans-serif", fontSize:"10px",
+                  fontWeight:"700", color:"#1D4ED8", textTransform:"uppercase",
+                  letterSpacing:"0.8px", marginBottom:"6px" }}>🔧 Diagnóstico</div>
+                <div style={{ fontFamily:"'DM Sans',sans-serif", fontSize:"13px",
+                  color:"#1E3A8A", fontWeight:"600", lineHeight:"1.5" }}>
+                  {s.diagnostico_ia}
+                </div>
+              </div>
+            )}
+
             <div style={{ fontFamily:"'DM Sans',sans-serif", fontSize:"11px",
               color:"#94A3B8", marginBottom:"14px", display:"flex", alignItems:"center", gap:"5px" }}>
               🔒 La dirección exacta se revela solo si aceptás el trabajo
@@ -425,8 +443,11 @@ function ScreenActivos({ activos, onEnCamino, onCompletar, onCancelar, loading }
               <div style={{ display:"flex", flexDirection:"column", gap:"8px" }}>
                 {[
                   ["Problema",       t.descripcion_raw],
+                  ...(t.diagnostico_ia ? [["Diagnóstico", t.diagnostico_ia]] : []),
                   ["Localidad",      t.localidad_evento || "—"],
-                  ["Turno pedido",   t.turno_solicitado ? formatearTurno(t.turno_solicitado) : "A confirmar"],
+                  ["Día del trabajo", t.fecha_trabajo
+                    ? new Date(t.fecha_trabajo).toLocaleString("es-AR", { weekday:"short", day:"numeric", month:"numeric", hour:"2-digit", minute:"2-digit" })
+                    : (t.turno_solicitado ? formatearTurno(t.turno_solicitado) : "A confirmar")],
                 ].map(([k,v]) => (
                   <div key={k} style={{ display:"flex", justifyContent:"space-between", gap:"8px" }}>
                     <span style={{ fontFamily:"'DM Sans',sans-serif", fontSize:"12px",
@@ -450,15 +471,28 @@ function ScreenActivos({ activos, onEnCamino, onCompletar, onCancelar, loading }
               </div>
             </div>
 
+            {/* Presupuesto estimado (materiales) que calculó la IA */}
+            {t.presupuesto_max > 0 && (
+              <div style={{ background:"#FFFBEB", border:"1px solid #FDE68A", borderRadius:"10px",
+                padding:"10px 14px", marginBottom:"12px", fontFamily:"'DM Sans',sans-serif",
+                fontSize:"12px", color:"#92400E" }}>
+                💰 Presupuesto estimado (materiales): <strong>${Number(t.presupuesto_min||0).toLocaleString("es-AR")} – ${Number(t.presupuesto_max||0).toLocaleString("es-AR")}</strong>
+              </div>
+            )}
+
+            {/* Boleta editable mientras el trabajo está en curso */}
+            <BoletaMateriales idSolicitud={t.id_solicitud} editable diagnostico={t.diagnostico_ia || t.etiqueta_ia} fecha={t.fecha} />
+
             {/* Botones de acción según estado */}
             {esEnProgreso && (() => {
               const esDiaDelTurno = (() => {
-                if (!t.turno_solicitado) return true;
-                try {
-                  const IDX = {"Lun":1,"Mar":2,"Mié":3,"Jue":4,"Vie":5,"Sáb":6,"Dom":0};
-                  const dia = t.turno_solicitado.split("_")[0];
-                  return new Date().getDay() === (IDX[dia] ?? -1);
-                } catch { return true; }
+                // Habilitado el día del trabajo o después (no antes)
+                if (t.fecha_trabajo) {
+                  const dia = new Date(t.fecha_trabajo); dia.setHours(0, 0, 0, 0);
+                  const hoy = new Date(); hoy.setHours(0, 0, 0, 0);
+                  return hoy >= dia;
+                }
+                return true; // sin fecha definida, no bloqueamos
               })();
               return (
                 <button
@@ -486,49 +520,26 @@ function ScreenActivos({ activos, onEnCamino, onCompletar, onCancelar, loading }
               );
             })()}
 
-            {esEnCamino && (() => {
-              // Habilitar "Terminé" solo 3hs después de marcar en camino
-              const keyTs = `en_camino_ts_${t.id_solicitud}`;
-              let tsGuardado = null;
-              try {
-                // Guardar timestamp la primera vez que vemos en_camino
-                const stored = sessionStorage.getItem(keyTs);
-                if (!stored) {
-                  sessionStorage.setItem(keyTs, Date.now().toString());
-                  tsGuardado = Date.now();
-                } else {
-                  tsGuardado = parseInt(stored);
-                }
-              } catch { tsGuardado = Date.now(); }
-              const horasTranscurridas = (Date.now() - tsGuardado) / 1000 / 3600;
-              const puedeCompletar = horasTranscurridas >= 3;
-              const minutosRestantes = Math.ceil((3 - horasTranscurridas) * 60);
-              return (
-                <button
-                  onClick={async () => {
-                    if (!puedeCompletar) return;
-                    setLoadingId("completar_" + t.id_solicitud);
-                    await onCompletar(t.id_solicitud);
-                    setLoadingId(null);
-                  }}
-                  disabled={!!loadingId || !puedeCompletar}
-                  title={!puedeCompletar ? `Disponible en ${minutosRestantes} minutos` : ""}
-                  style={{ width:"100%",
-                    background: puedeCompletar
-                      ? "linear-gradient(135deg,#22C55E,#16A34A)" : "#E2E8F0",
-                    border:"none", borderRadius:"14px", padding:"13px",
-                    fontFamily:"'DM Sans',sans-serif", fontWeight:"800", fontSize:"14px",
-                    color: puedeCompletar ? "#fff" : "#94A3B8",
-                    cursor: puedeCompletar ? "pointer" : "not-allowed",
-                    marginBottom:"10px",
-                    boxShadow: puedeCompletar ? "0 4px 14px rgba(34,197,94,0.3)" : "none",
-                    display:"flex", alignItems:"center", justifyContent:"center", gap:"8px",
-                  }}>
-                  {loadingId === "completar_" + t.id_solicitud ? <Spinner size={16}/> : null}
-                  🏁 {puedeCompletar ? "Terminé el trabajo" : `Disponible en ${minutosRestantes} min`}
-                </button>
-              );
-            })()}
+            {esEnCamino && (
+              <button
+                onClick={async () => {
+                  setLoadingId("completar_" + t.id_solicitud);
+                  await onCompletar(t.id_solicitud);
+                  setLoadingId(null);
+                }}
+                disabled={!!loadingId}
+                style={{ width:"100%",
+                  background:"linear-gradient(135deg,#22C55E,#16A34A)",
+                  border:"none", borderRadius:"14px", padding:"13px",
+                  fontFamily:"'DM Sans',sans-serif", fontWeight:"800", fontSize:"14px",
+                  color:"#fff", cursor:"pointer", marginBottom:"10px",
+                  boxShadow:"0 4px 14px rgba(34,197,94,0.3)",
+                  display:"flex", alignItems:"center", justifyContent:"center", gap:"8px",
+                }}>
+                {loadingId === "completar_" + t.id_solicitud ? <Spinner size={16}/> : null}
+                🏁 Terminé el trabajo
+              </button>
+            )}
 
             {/* Cancelar */}
             {cancelando === t.id_solicitud ? (
@@ -579,23 +590,14 @@ function ScreenActivos({ activos, onEnCamino, onCompletar, onCancelar, loading }
 
 function _fechaISO(s) {
   // Devuelve "YYYY-MM-DD" o null.
-  // Prioridad: fecha_trabajo (DateTime del backend) → turno_solicitado → fecha de creación
+  // Prioridad: fecha_trabajo (fecha real del trabajo) → fecha de creación.
+  // No derivamos del turno: eso calculaba siempre el próximo día de la semana
+  // (futuro), y un trabajo YA finalizado terminaba apareciendo en una fecha
+  // futura. La fecha real del trabajo la define fecha_trabajo (backend).
   if (s.fecha_trabajo) return s.fecha_trabajo.split("T")[0];
-  if (s.turno_solicitado) {
-    try {
-      const IDX = { Lun:1, Mar:2, Mie:3, Jue:4, Vie:5, Sab:6, Dom:0 };
-      const partes = s.turno_solicitado.split("_");
-      const diaIdx = IDX[partes[0]] ?? 1;
-      const hora   = partes[2] ? parseInt(partes[2]) : 9;
-      const hoy    = new Date();
-      let diff = diaIdx - hoy.getDay();
-      if (diff <= 0) diff += 7;
-      const target = new Date(hoy);
-      target.setDate(hoy.getDate() + diff);
-      target.setHours(hora, 0, 0, 0);
-      return target.toISOString().split("T")[0];
-    } catch { return null; }
-  }
+  // Fallback: fecha de creación, para que un trabajo terminado sin fecha
+  // de trabajo igual aparezca en el calendario (en el día que se registró).
+  if (s.fecha) return s.fecha.split("T")[0];
   return null;
 }
 
@@ -618,9 +620,10 @@ function ScreenAgenda({ activos, historial }) {
     if (!mapaFechas[fecha]) mapaFechas[fecha] = [];
     mapaFechas[fecha].push({
       tipo:        "activo",
-      descripcion: s.descripcion_raw,
+      descripcion: s.diagnostico_ia || s.descripcion_raw,
       etiqueta:    s.etiqueta_ia,
       cliente:     s.nombre_cliente,
+      localidad:   s.localidad_evento,
       direccion:   s.direccion_cliente,
       hora:        s.turno_solicitado?.split("_")[2]
                      ? `${s.turno_solicitado.split("_")[2]}:00hs` : null,
@@ -634,9 +637,10 @@ function ScreenAgenda({ activos, historial }) {
     if (!mapaFechas[fecha]) mapaFechas[fecha] = [];
     mapaFechas[fecha].push({
       tipo:        "finalizado",
-      descripcion: s.descripcion_raw,
+      descripcion: s.diagnostico_ia || s.descripcion_raw,
       etiqueta:    s.etiqueta_ia,
       cliente:     s.nombre_cliente,
+      localidad:   s.localidad_evento,
       direccion:   s.direccion_cliente,
       hora:        s.turno_solicitado?.split("_")[2]
                      ? `${s.turno_solicitado.split("_")[2]}:00hs` : null,
@@ -718,10 +722,10 @@ function ScreenAgenda({ activos, historial }) {
 
               return (
                 <button key={d}
-                  onClick={() => color ? setSelected(isSel ? null : ds) : null}
+                  onClick={() => setSelected(isSel ? null : ds)}
                   style={{
                     border:"none", borderRadius:"8px", padding:"6px 2px",
-                    cursor: color ? "pointer" : "default",
+                    cursor: "pointer",
                     fontFamily:"'DM Sans',sans-serif", position:"relative",
                     fontWeight: isHoy || color ? "800" : "400", fontSize:"12px",
                     transition:"all 0.15s",
@@ -835,10 +839,16 @@ function ScreenAgenda({ activos, historial }) {
                             👤 <strong>{j.cliente}</strong>
                           </div>
                         )}
+                        {j.localidad && (
+                          <div style={{ fontFamily:"'DM Sans',sans-serif",
+                            fontSize:"12px", color:"#475569" }}>
+                            📍 {j.localidad}
+                          </div>
+                        )}
                         {j.direccion && (
                           <div style={{ fontFamily:"'DM Sans',sans-serif",
                             fontSize:"12px", color:"#475569" }}>
-                            📍 {j.direccion}
+                            🏠 {j.direccion}
                           </div>
                         )}
                         {!j.direccion && esActivo && (
@@ -869,6 +879,27 @@ function ScreenAgenda({ activos, historial }) {
 
 // ─── SCREEN: HISTORIAL ────────────────────────────────────────────────────────
 function ScreenHistorial({ historial, loading, puntuacionPerfil }) {
+  const [ratingCli,  setRatingCli]  = useState({});
+  const [valoradoCli, setValoradoCli] = useState({});
+  const [loadingCli, setLoadingCli] = useState({});
+  const [openYear,  setOpenYear]  = useState(null);
+  const [openMonth, setOpenMonth] = useState(null); // clave "año-mes"
+
+  const calificarCliente = async (id, stars) => {
+    if (!stars) return;
+    setRatingCli(p => ({ ...p, [id]: stars }));
+    setLoadingCli(p => ({ ...p, [id]: true }));
+    try {
+      await api.post(`/calificaciones/plomero/${id}`, { estrellas: stars, comentario: null });
+      setValoradoCli(p => ({ ...p, [id]: true }));
+    } catch {
+      // Si ya había calificado antes, igual lo damos por hecho
+      setValoradoCli(p => ({ ...p, [id]: true }));
+    } finally {
+      setLoadingCli(p => ({ ...p, [id]: false }));
+    }
+  };
+
   if (loading) return (
     <div style={{ display:"flex", justifyContent:"center", padding:"80px" }}>
       <Spinner size={36} color="#3B82F6"/>
@@ -881,10 +912,107 @@ function ScreenHistorial({ historial, loading, puntuacionPerfil }) {
       || e === "pendiente_calificacion";
   });
 
-  const promedioCalculado = terminados.length > 0
-    ? (terminados.reduce((a,t) => a + (t.calificacion || 0), 0) / terminados.length).toFixed(1)
-    : null;
-  const promedio = promedioCalculado ?? (puntuacionPerfil ? puntuacionPerfil.toFixed(1) : "—");
+  // El promedio viene del backend (perfil): ya incluye los 5 puntos base,
+  // las calificaciones reales y las penalizaciones. NO se recalcula con las
+  // notas por trabajo, para no perder la base ni contar como 0 los trabajos
+  // que todavía no fueron calificados.
+  const promedio = (puntuacionPerfil != null && !isNaN(puntuacionPerfil))
+    ? Number(puntuacionPerfil).toFixed(1)
+    : "—";
+
+  const MESES = ["Enero","Febrero","Marzo","Abril","Mayo","Junio",
+    "Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
+
+  // Agrupar trabajos: año → mes → semana del mes
+  const fechaDe = (t) => new Date(t.fecha_trabajo || t.fecha);
+  const grupos = {};
+  terminados.forEach(t => {
+    const d = fechaDe(t);
+    if (isNaN(d.getTime())) return;
+    const y = d.getFullYear();
+    const m = d.getMonth();
+    const semana = Math.ceil(d.getDate() / 7);
+    grupos[y] = grupos[y] || {};
+    grupos[y][m] = grupos[y][m] || {};
+    grupos[y][m][semana] = grupos[y][m][semana] || [];
+    grupos[y][m][semana].push(t);
+  });
+  const anios = Object.keys(grupos).map(Number).sort((a, b) => b - a);
+  const contarMes = (y, m) => Object.values(grupos[y][m]).reduce((a, arr) => a + arr.length, 0);
+
+  // Tarjeta de un trabajo (detalle estilo agenda + calificación al cliente)
+  const renderJob = (t) => (
+    <div key={t.id_solicitud} style={{ background:"#fff", borderRadius:"14px",
+      border:"1.5px solid #F1F5F9", padding:"16px 18px", marginBottom:"10px" }}>
+      <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", gap:"8px", marginBottom:"8px" }}>
+        <Badge label={t.etiqueta_ia || "PLOMERIA_GENERAL"}/>
+        <span style={{ fontFamily:"'DM Sans',sans-serif", fontSize:"12px", color:"#94A3B8" }}>
+          {(() => { const d = fechaDe(t); return isNaN(d.getTime()) ? "" : d.toLocaleDateString("es-AR"); })()}
+        </span>
+      </div>
+      <div style={{ fontFamily:"'DM Sans',sans-serif", fontSize:"13px",
+        color:"#0F172A", fontWeight:"700", marginBottom:"6px" }}>{t.diagnostico_ia || `"${t.descripcion_raw}"`}</div>
+      {t.nombre_cliente && (
+        <div style={{ fontFamily:"'DM Sans',sans-serif", fontSize:"12px", color:"#475569" }}>
+          👤 {t.nombre_cliente}
+        </div>
+      )}
+      {t.localidad_evento && (
+        <div style={{ fontFamily:"'DM Sans',sans-serif", fontSize:"12px", color:"#475569" }}>
+          📍 {t.localidad_evento}
+        </div>
+      )}
+      {t.calificacion > 0 && (
+        <div style={{ display:"flex", alignItems:"center", gap:"8px", marginTop:"8px" }}>
+          <Stars val={t.calificacion} size={14}/>
+          <span style={{ fontFamily:"'DM Sans',sans-serif", fontWeight:"700",
+            fontSize:"13px", color:"#92400E" }}>{t.calificacion}</span>
+        </div>
+      )}
+
+      {(t.estado || "").toLowerCase() === "pendiente_calificacion" && (
+        (valoradoCli[t.id_solicitud] || t.plomero_califico) ? (
+          <div style={{ marginTop:"12px", background:"#F0FDF4", border:"1px solid #86EFAC",
+            borderRadius:"10px", padding:"10px 14px", fontFamily:"'DM Sans',sans-serif",
+            fontSize:"13px", color:"#15803D", fontWeight:"600" }}>
+            ✓ Calificaste a {t.nombre_cliente || "el cliente"}
+          </div>
+        ) : (
+          <div style={{ marginTop:"12px", borderTop:"1px solid #F1F5F9", paddingTop:"12px" }}>
+            <div style={{ fontFamily:"'DM Sans',sans-serif", fontSize:"12px",
+              fontWeight:"700", color:"#64748B", marginBottom:"8px" }}>
+              ¿Cómo fue el cliente {t.nombre_cliente ? `(${t.nombre_cliente})` : ""}?
+            </div>
+            <div style={{ display:"flex", gap:"6px", alignItems:"center" }}>
+              {[1,2,3,4,5].map(i => (
+                <button key={i}
+                  onClick={() => setRatingCli(p => ({ ...p, [t.id_solicitud]: i }))}
+                  disabled={!!loadingCli[t.id_solicitud]}
+                  style={{ width:"34px", height:"34px", borderRadius:"8px",
+                    border: (ratingCli[t.id_solicitud] || 0) >= i ? "2px solid #F59E0B" : "2px solid #E2E8F0",
+                    background: (ratingCli[t.id_solicitud] || 0) >= i ? "#FFFBEB" : "#F8FAFC",
+                    fontSize:"16px", cursor:"pointer", display:"flex",
+                    alignItems:"center", justifyContent:"center" }}>⭐</button>
+              ))}
+              <button
+                onClick={() => calificarCliente(t.id_solicitud, ratingCli[t.id_solicitud])}
+                disabled={!ratingCli[t.id_solicitud] || !!loadingCli[t.id_solicitud]}
+                style={{ marginLeft:"8px",
+                  background: ratingCli[t.id_solicitud] ? "linear-gradient(135deg,#F59E0B,#D97706)" : "#E2E8F0",
+                  color: ratingCli[t.id_solicitud] ? "#fff" : "#94A3B8",
+                  border:"none", borderRadius:"9px", padding:"8px 14px",
+                  fontFamily:"'DM Sans',sans-serif", fontWeight:"700", fontSize:"12px",
+                  cursor: ratingCli[t.id_solicitud] ? "pointer" : "not-allowed",
+                  display:"flex", alignItems:"center", gap:"6px" }}>
+                {loadingCli[t.id_solicitud] ? <Spinner size={13}/> : null}
+                Enviar
+              </button>
+            </div>
+          </div>
+        )
+      )}
+    </div>
+  );
 
   return (
     <div style={{ maxWidth:"640px", margin:"0 auto", padding:"28px 24px" }}>
@@ -911,6 +1039,49 @@ function ScreenHistorial({ historial, loading, puntuacionPerfil }) {
         ))}
       </div>
 
+      {terminados.length > 0 && (() => {
+        // Facturación (materiales) por mes — últimos 6 meses con datos
+        const porMes = {};
+        terminados.forEach(t => {
+          const d = new Date(t.fecha_trabajo || t.fecha);
+          if (isNaN(d.getTime())) return;
+          const k = `${d.getFullYear()}-${String(d.getMonth()).padStart(2, "0")}`;
+          porMes[k] = porMes[k] || { count: 0, total: 0, y: d.getFullYear(), m: d.getMonth() };
+          porMes[k].count += 1;
+          porMes[k].total += (t.total_boleta || 0);
+        });
+        const filas = Object.values(porMes)
+          .sort((a, b) => (b.y - a.y) || (b.m - a.m)).slice(0, 6).reverse();
+        if (filas.length === 0) return null;
+        const maxTotal = Math.max(1, ...filas.map(f => f.total));
+        return (
+          <div style={{ background:"#fff", borderRadius:"16px", border:"1.5px solid #F1F5F9",
+            padding:"18px 20px", marginBottom:"20px" }}>
+            <div style={{ fontFamily:"'DM Sans',sans-serif", fontWeight:"800", fontSize:"15px",
+              color:"#0F172A", marginBottom:"2px" }}>📊 Facturación por mes</div>
+            <div style={{ fontFamily:"'DM Sans',sans-serif", fontSize:"12px", color:"#94A3B8",
+              marginBottom:"14px" }}>Total de materiales facturados (boletas)</div>
+            {filas.map(f => (
+              <div key={`${f.y}-${f.m}`} style={{ marginBottom:"10px" }}>
+                <div style={{ display:"flex", justifyContent:"space-between",
+                  fontFamily:"'DM Sans',sans-serif", fontSize:"12px", marginBottom:"3px" }}>
+                  <span style={{ color:"#475569", fontWeight:"600" }}>
+                    {MESES[f.m]} {f.y} · {f.count} trabajo{f.count !== 1 ? "s" : ""}
+                  </span>
+                  <span style={{ color:"#16A34A", fontWeight:"700" }}>
+                    ${Number(f.total).toLocaleString("es-AR")}
+                  </span>
+                </div>
+                <div style={{ background:"#F1F5F9", borderRadius:"6px", height:"8px", overflow:"hidden" }}>
+                  <div style={{ width:`${Math.round(f.total / maxTotal * 100)}%`, height:"100%",
+                    background:"linear-gradient(90deg,#3B82F6,#06B6D4)" }} />
+                </div>
+              </div>
+            ))}
+          </div>
+        );
+      })()}
+
       {terminados.length === 0 ? (
         <div style={{ textAlign:"center", padding:"60px 20px",
           border:"2px dashed #E2E8F0", borderRadius:"16px" }}>
@@ -918,32 +1089,97 @@ function ScreenHistorial({ historial, loading, puntuacionPerfil }) {
           <div style={{ fontFamily:"'DM Sans',sans-serif", fontWeight:"700",
             fontSize:"15px", color:"#94A3B8" }}>Todavía no tenés trabajos finalizados.</div>
         </div>
-      ) : terminados.map(t => (
-        <div key={t.id_solicitud} style={{ background:"#fff", borderRadius:"16px",
-          border:"1.5px solid #F1F5F9", padding:"18px 20px", marginBottom:"10px" }}>
-          <div style={{ display:"flex", alignItems:"center", gap:"8px", marginBottom:"6px" }}>
-            <Badge label={t.etiqueta_ia || "PLOMERIA_GENERAL"}/>
+      ) : anios.map(y => {
+        const meses = Object.keys(grupos[y]).map(Number).sort((a, b) => b - a);
+        const totalAnio = meses.reduce((a, m) => a + contarMes(y, m), 0);
+        const yearOpen = openYear === y;
+        return (
+          <div key={y} style={{ marginBottom:"12px" }}>
+            <button onClick={() => { setOpenYear(yearOpen ? null : y); setOpenMonth(null); }}
+              style={{ width:"100%", display:"flex", justifyContent:"space-between", alignItems:"center",
+                background:"#0F172A", color:"#fff", border:"none", borderRadius:"12px",
+                padding:"12px 16px", cursor:"pointer", fontFamily:"'DM Sans',sans-serif",
+                fontWeight:"800", fontSize:"15px" }}>
+              <span>{yearOpen ? "▾" : "▸"} {y}</span>
+              <span style={{ fontSize:"12px", fontWeight:"600", color:"#94A3B8" }}>
+                {totalAnio} trabajo{totalAnio !== 1 ? "s" : ""}
+              </span>
+            </button>
+
+            {yearOpen && meses.map(m => {
+              const mKey = `${y}-${m}`;
+              const monthOpen = openMonth === mKey;
+              const totalMes = contarMes(y, m);
+              const semanas = Object.keys(grupos[y][m]).map(Number).sort((a, b) => a - b);
+              return (
+                <div key={mKey} style={{ margin:"8px 0 0 8px" }}>
+                  <button onClick={() => setOpenMonth(monthOpen ? null : mKey)}
+                    style={{ width:"100%", display:"flex", justifyContent:"space-between", alignItems:"center",
+                      background:"#EFF6FF", color:"#1D4ED8", border:"1px solid #BFDBFE", borderRadius:"10px",
+                      padding:"10px 14px", cursor:"pointer", fontFamily:"'DM Sans',sans-serif",
+                      fontWeight:"700", fontSize:"14px" }}>
+                    <span>{monthOpen ? "▾" : "▸"} {MESES[m]}</span>
+                    <span style={{ fontSize:"12px", fontWeight:"600", color:"#64748B" }}>
+                      {totalMes} trabajo{totalMes !== 1 ? "s" : ""}
+                    </span>
+                  </button>
+
+                  {monthOpen && semanas.map(sem => (
+                    <div key={sem} style={{ margin:"8px 0 0 8px" }}>
+                      <div style={{ fontFamily:"'DM Sans',sans-serif", fontSize:"12px",
+                        fontWeight:"700", color:"#94A3B8", textTransform:"uppercase",
+                        letterSpacing:"0.6px", margin:"8px 0 6px" }}>
+                        Semana {sem} · {grupos[y][m][sem].length} trabajo{grupos[y][m][sem].length !== 1 ? "s" : ""}
+                      </div>
+                      {grupos[y][m][sem].map(renderJob)}
+                    </div>
+                  ))}
+                </div>
+              );
+            })}
           </div>
-          <div style={{ fontFamily:"'DM Sans',sans-serif", fontSize:"12px",
-            color:"#94A3B8", marginBottom:"8px" }}>
-            {t.fecha ? new Date(t.fecha).toLocaleDateString("es-AR") : ""}
-          </div>
-          <div style={{ fontFamily:"'DM Sans',sans-serif", fontSize:"13px",
-            color:"#475569", fontStyle:"italic" }}>"{t.descripcion_raw}"</div>
-          {t.calificacion > 0 && (
-            <div style={{ display:"flex", alignItems:"center", gap:"8px", marginTop:"8px" }}>
-              <Stars val={t.calificacion} size={14}/>
-              <span style={{ fontFamily:"'DM Sans',sans-serif", fontWeight:"700",
-                fontSize:"13px", color:"#92400E" }}>{t.calificacion}</span>
-            </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ─── HOME PLOMERO PRINCIPAL ───────────────────────────────────────────────────
+// --- SCREEN: NOTIFICACIONES (plomero) ---
+function ScreenNotificaciones({ notifs, onMark, onClear }) {
+  return (
+    <div style={{ maxWidth:"640px", margin:"0 auto", padding:"32px 20px" }}>
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:"20px" }}>
+        <h1 style={{ fontFamily:"'DM Sans',sans-serif", fontWeight:"800", fontSize:"22px", color:"#0F172A", margin:0 }}>Notificaciones</h1>
+        <div style={{ display:"flex", gap:"14px", alignItems:"center" }}>
+          {notifs.some(n => !n.leida) && (
+            <button onClick={onMark} style={{ background:"transparent", border:"none", fontFamily:"'DM Sans',sans-serif", fontWeight:"600", fontSize:"13px", color:"#3B82F6", cursor:"pointer" }}>Marcar todas como leidas</button>
           )}
+          {notifs.length > 0 && (
+            <button onClick={onClear} style={{ background:"transparent", border:"none", fontFamily:"'DM Sans',sans-serif", fontWeight:"600", fontSize:"13px", color:"#EF4444", cursor:"pointer" }}>Borrar todas</button>
+          )}
+        </div>
+      </div>
+      {notifs.length === 0 ? (
+        <div style={{ textAlign:"center", padding:"60px 20px", color:"#94A3B8", fontFamily:"'DM Sans',sans-serif" }}>
+          <div style={{ fontSize:"36px", marginBottom:"12px" }}>🔔</div>
+          <div style={{ fontWeight:"700", fontSize:"15px" }}>Sin notificaciones</div>
+        </div>
+      ) : notifs.map(n => (
+        <div key={n.id} style={{ background:n.leida?"#fff":"#EFF6FF", border:n.leida?"1.5px solid #F1F5F9":"1.5px solid #BFDBFE", borderRadius:"14px", padding:"16px 18px", marginBottom:"10px", display:"flex", gap:"14px", alignItems:"flex-start" }}>
+          <div style={{ fontSize:"22px", flexShrink:0, width:"40px", height:"40px", borderRadius:"12px", background:n.leida?"#F8FAFC":"#DBEAFE", display:"flex", alignItems:"center", justifyContent:"center" }}>{n.icon}</div>
+          <div style={{ flex:1 }}>
+            <div style={{ fontFamily:"'DM Sans',sans-serif", fontWeight:"700", fontSize:"14px", color:"#0F172A", marginBottom:"3px" }}>{n.titulo}</div>
+            <div style={{ fontFamily:"'DM Sans',sans-serif", fontSize:"13px", color:"#64748B", lineHeight:"1.4" }}>{n.mensaje}</div>
+            <div style={{ fontFamily:"'DM Sans',sans-serif", fontSize:"11px", color:"#CBD5E1", marginTop:"6px" }}>{n.tiempo}</div>
+          </div>
+          {!n.leida && <div style={{ width:"8px", height:"8px", borderRadius:"50%", background:"#3B82F6", flexShrink:0, marginTop:"6px" }} />}
         </div>
       ))}
     </div>
   );
 }
 
-// ─── HOME PLOMERO PRINCIPAL ───────────────────────────────────────────────────
 export default function HomePlomero({ onLogout }) {
   const user   = useAuthStore(s => s.user);
   const logout = useAuthStore(s => s.logout);
@@ -956,10 +1192,23 @@ export default function HomePlomero({ onLogout }) {
   const [loading,     setLoading]    = useState(false);
   const [perfil,      setPerfil]     = useState(null);
 
+  const token = useAuthStore(s => s.token);
+  const [notifs, marcarTodasNotifs, eliminarTodasNotifs] = useNotificaciones(token);
+  const notifCount = notifs.filter(n => !n.leida).length;
+
   useEffect(() => {
-    api.get("/plomeros/me")
-      .then(res => { setPerfil(res.data); setDisponible(res.data?.disponible_ahora ?? true); })
+    let primera = true;
+    const cargarPerfil = () => api.get("/plomeros/me")
+      .then(res => {
+        setPerfil(res.data);
+        // El estado del toggle solo se setea la primera vez, para no pisar
+        // un cambio manual del plomero en cada refresco.
+        if (primera) { setDisponible(res.data?.disponible_ahora ?? true); primera = false; }
+      })
       .catch(() => {});
+    cargarPerfil();
+    const id = setInterval(cargarPerfil, 15000); // refresca puntuación
+    return () => clearInterval(id);
   }, []);
 
   const cargarSolicitudes = useCallback(async () => {
@@ -1046,6 +1295,12 @@ export default function HomePlomero({ onLogout }) {
 
   const handleLogout = () => { logout(); onLogout(); };
 
+  const conversacionesActivas = activos.map(a => ({
+    id_solicitud: a.id_solicitud,
+    titulo:       a.nombre_cliente || "Cliente",
+    subtitulo:    a.localidad_evento || a.etiqueta_ia || "Trabajo en curso",
+  }));
+
   return (
     <div style={{ minHeight:"100vh",
       background:"linear-gradient(160deg,#F0F9FF 0%,#F8FAFC 50%,#F0FDF4 100%)" }}>
@@ -1055,7 +1310,7 @@ export default function HomePlomero({ onLogout }) {
       <Header
         screen={screen} onNav={setScreen}
         disponible={disponible} onToggleDisp={handleToggleDisp}
-        pendientes={solicitudes.length} user={user} onLogout={handleLogout}
+        pendientes={solicitudes.length} notifCount={notifCount} user={user} onLogout={handleLogout}
       />
 
       {screen==="solicitudes" && (
@@ -1074,6 +1329,12 @@ export default function HomePlomero({ onLogout }) {
       {screen==="historial" && (
         <ScreenHistorial historial={historial} loading={loading} puntuacionPerfil={perfil?.puntuacion}/>
       )}
+      {screen==="alertas" && (
+        <ScreenNotificaciones notifs={notifs} onMark={marcarTodasNotifs} onClear={eliminarTodasNotifs} />
+      )}
+
+      {/* Chat flotante - visible siempre, activo solo con trabajos en curso */}
+      <ChatWidget conversaciones={conversacionesActivas} />
     </div>
   );
 }

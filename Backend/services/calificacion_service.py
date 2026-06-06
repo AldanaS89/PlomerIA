@@ -214,12 +214,18 @@ def penalizar_por_cancelacion(
     horas          = _horas_al_turno(solicitud)
     estrellas_auto = _estrellas_automaticas(horas, hubo_msg)
 
+    # La penalización debe caer en la reputación de QUIEN canceló (el penalizado).
+    # calcular_promedio_plomero suma ["cliente", "sistema_cliente"]  → bucket del plomero
+    # calcular_promedio_cliente suma ["plomero", "sistema_plomero"]  → bucket del cliente
+    # Por eso, para penalizar al plomero usamos "sistema_cliente" y viceversa.
+    autor_rol_sistema = "sistema_cliente" if rol_actor == "plomero" else "sistema_plomero"
+
     calificacion_repository.registrar_calificacion(
         db           = db,
         id_solicitud = solicitud.id_solicitud,
         id_plomero   = solicitud.id_plomero,
         id_cliente   = solicitud.id_usuario,
-        autor_rol    = f"sistema_{rol_actor}",
+        autor_rol    = autor_rol_sistema,
         estrellas    = estrellas_auto,
         comentario   = _comentario_automatico(horas, hubo_msg, rol_actor),
     )

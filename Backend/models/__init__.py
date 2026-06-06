@@ -5,3 +5,5 @@ from .asignacion import Asignacion
 from .calificacion import Calificacion
 from .mensaje import Mensaje
 from .solicitud_plomero import SolicitudPlomero
+from .notificacion import Notificacion
+from .material import MaterialItem

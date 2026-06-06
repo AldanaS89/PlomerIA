@@ -40,6 +40,17 @@ def require_role(roles: list[str]):
 
 
 # ─────────────────────────────
+# ACTOR GENÉRICO (cualquiera de los dos roles)
+# Devuelve {id, role} — útil para recursos compartidos como
+# notificaciones y mensajería, donde importan ambos.
+# ─────────────────────────────
+def get_actor_actual(
+    credentials: HTTPAuthorizationCredentials = Depends(bearer),
+) -> dict:
+    return decode_token(credentials, ["usuario", "plomero"])
+
+
+# ─────────────────────────────
 # DEPENDENCIES LISTAS
 # ─────────────────────────────
 get_usuario_actual = require_role(["usuario"])

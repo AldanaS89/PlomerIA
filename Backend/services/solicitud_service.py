@@ -1,4 +1,5 @@
 import logging
+import unicodedata
 
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
@@ -7,6 +8,7 @@ from datetime import datetime, timedelta
 from models.solicitud_plomero import EstadoInvitacion
 from repositories import solicitud_plomero_repository
 from services.notificacion_service import notificacion_service
+from services import notificaciones_inapp
 from services import ia_service
 from models.solicitud import EstadoSolicitud
 from models.bloqueHorario import BloqueHorario
@@ -16,12 +18,55 @@ from repositories import (
     solicitud_repository,
     usuario_repository,
     plomero_repository,
+    calificacion_repository,
+    material_repository,
 )
 
 from services.filtrado_service import filtrado_service
 from services import calificacion_service as _cal_service
 
 logger = logging.getLogger(__name__)
+
+
+# Día de la semana en formato getDay() de JS: domingo=0 ... sábado=6
+_DIAS_SEMANA = {
+    "dom": 0, "lun": 1, "mar": 2, "mie": 3, "jue": 4, "vie": 5, "sab": 6,
+}
+
+
+def _calcular_fecha_trabajo(turno: str):
+    """
+    Convierte un turno tipo "Mié_manana_8" en la próxima fecha concreta
+    (hoy o posterior) que cae en ese día de la semana, con esa hora.
+    Devuelve None si el turno no es parseable.
+    """
+    if not turno:
+        return None
+    partes = turno.split("_")
+    if len(partes) < 1:
+        return None
+
+    # Normalizar acentos: "Mié" -> "mie", "Sáb" -> "sab"
+    dia_raw = partes[0].lower()
+    dia = "".join(
+        c for c in unicodedata.normalize("NFD", dia_raw)
+        if unicodedata.category(c) != "Mn"
+    )[:3]
+
+    objetivo = _DIAS_SEMANA.get(dia)
+    if objetivo is None:
+        return None
+
+    try:
+        hora = int(partes[2]) if len(partes) >= 3 else 9
+    except (ValueError, TypeError):
+        hora = 9
+
+    hoy = datetime.now()
+    hoy_js = (hoy.weekday() + 1) % 7  # Python (lun=0) -> JS getDay (dom=0)
+    delta = (objetivo - hoy_js) % 7   # 0 = hoy, si no, próximo día que coincide
+    fecha = hoy + timedelta(days=delta)
+    return fecha.replace(hour=hora, minute=0, second=0, microsecond=0)
 
 
 # ─── PENALIZACIONES ───────────────────────────────────────────────────────────
@@ -69,6 +114,7 @@ def _to_response(s):
 
         "etiqueta_ia": s.etiqueta_ia,
         "urgencia_ia": s.urgencia_ia,
+        "diagnostico_ia": s.diagnostico_ia,
 
         "fecha_trabajo": (
             s.fecha_trabajo.isoformat()
@@ -299,9 +345,17 @@ def crear_solicitud(
         datos,
         diagnostico
     )
-    
+
+    # Guardar el diagnóstico técnico generado por la IA
+    solicitud.diagnostico_ia = diagnostico.get("diagnostico_ia") or None
+    db.commit()
+    db.refresh(solicitud)
+
     if turno_elegido:
         solicitud.turno_solicitado = turno_elegido
+        # Calcular la fecha concreta del trabajo a partir del turno elegido.
+        # Es clave para la agenda del plomero y el detalle del día.
+        solicitud.fecha_trabajo = _calcular_fecha_trabajo(turno_elegido)
         db.commit()
         db.refresh(solicitud)
 
@@ -335,6 +389,21 @@ def crear_solicitud(
         diagnostico=diagnostico,
     )
 
+    # Notificación in-app a cada plomero invitado
+    es_urgente = (diagnostico.get("urgencia_ia") == "URGENTE")
+    for p in plomeros:
+        notificaciones_inapp.notificar_plomero(
+            db,
+            id_plomero=p.id_plomero,
+            tipo="urgencia" if es_urgente else "nueva_solicitud",
+            titulo="Nueva urgencia 🚨" if es_urgente else "Nueva solicitud",
+            mensaje=(
+                f"{'URGENTE — ' if es_urgente else ''}"
+                f"{(diagnostico.get('etiqueta_ia') or 'Trabajo de plomería')}. "
+                f"Tenés {'30 minutos' if es_urgente else '3 horas'} para responder."
+            ),
+            id_solicitud=solicitud.id_solicitud,
+        )
 
     return _to_response(
         solicitud_repository.obtener_por_id(
@@ -443,6 +512,20 @@ def aceptar(
     solicitud = solicitud_repository.obtener_por_id(
         db,
         id_solicitud
+    )
+
+    # Avisar al cliente que su solicitud fue aceptada
+    nombre_plomero = (
+        f"{solicitud.plomero.nombre} {solicitud.plomero.apellido}"
+        if solicitud.plomero else "Un profesional"
+    )
+    notificaciones_inapp.notificar_cliente(
+        db,
+        id_usuario=solicitud.id_usuario,
+        tipo="solicitud_aceptada",
+        titulo="Solicitud aceptada ✅",
+        mensaje=f"{nombre_plomero} aceptó tu solicitud y ya tiene los datos del trabajo.",
+        id_solicitud=id_solicitud,
     )
 
     return _to_response(solicitud)
@@ -620,14 +703,13 @@ def marcar_en_camino(
 
     if (
         solicitud.fecha_trabajo
-        and solicitud.fecha_trabajo.date()
-        != datetime.now().date()
+        and datetime.now().date() < solicitud.fecha_trabajo.date()
     ):
         raise HTTPException(
             status_code=400,
             detail=(
                 "Solo podés marcar EN CAMINO "
-                "el día del trabajo"
+                "el día del trabajo o después"
             )
         )
 
@@ -635,6 +717,15 @@ def marcar_en_camino(
         db,
         id_solicitud,
         EstadoSolicitud.EN_CAMINO
+    )
+
+    notificaciones_inapp.notificar_cliente(
+        db,
+        id_usuario=solicitud.id_usuario,
+        tipo="en_camino",
+        titulo="El profesional está en camino 🚗",
+        mensaje="Tu plomero marcó que ya está en camino al domicilio.",
+        id_solicitud=id_solicitud,
     )
 
     return _to_response(solicitud)
@@ -684,6 +775,18 @@ def completar(
         EstadoSolicitud.PENDIENTE_CALIFICACION
     )
 
+    # Arranca el plazo de 72hs para que ambos califiquen
+    _cal_service.activar_periodo_calificacion(db, id_solicitud)
+
+    notificaciones_inapp.notificar_cliente(
+        db,
+        id_usuario=solicitud.id_usuario,
+        tipo="trabajo_finalizado",
+        titulo="Trabajo finalizado 🏁",
+        mensaje="El trabajo fue marcado como finalizado. Tenés 72 horas para calificar al profesional.",
+        id_solicitud=id_solicitud,
+    )
+
     return _to_response(solicitud)
 
 def cancelar(db: Session, id_solicitud: int, id_usuario: int):
@@ -698,15 +801,11 @@ def cancelar(db: Session, id_solicitud: int, id_usuario: int):
         raise HTTPException(status_code=404, detail="No encontrada")
     if solicitud.id_usuario != id_usuario:
         raise HTTPException(status_code=403, detail="Sin acceso")
-    if solicitud.estado == EstadoSolicitud.EN_CAMINO:
-        raise HTTPException(
-            status_code=400,
-            detail="No se puede cancelar — el profesional ya esta en camino"
-        )
 
     estados_cancelables = (
         EstadoSolicitud.PENDIENTE,
         EstadoSolicitud.EN_PROGRESO,
+        EstadoSolicitud.EN_CAMINO,
         EstadoSolicitud.REASIGNACION_PENDIENTE,
     )
     if solicitud.estado not in estados_cancelables:
@@ -723,6 +822,17 @@ def cancelar(db: Session, id_solicitud: int, id_usuario: int):
     if habia_plomero and not en_reasignacion:
         penalizacion = _cal_service.penalizar_por_cancelacion(
             db, solicitud, id_usuario, "cliente"
+        )
+
+    # Avisar al plomero asignado que el cliente canceló
+    if habia_plomero and not en_reasignacion:
+        notificaciones_inapp.notificar_plomero(
+            db,
+            id_plomero=solicitud.id_plomero,
+            tipo="cancelada_cliente",
+            titulo="El cliente canceló ❌",
+            mensaje="El cliente canceló un trabajo que tenías asignado. El día vuelve a estar disponible en tu agenda.",
+            id_solicitud=id_solicitud,
         )
 
     solicitud_repository.asignar_plomero(db, id_solicitud, None)
@@ -804,6 +914,15 @@ def cancelar_plomero(
         EstadoSolicitud.REASIGNACION_PENDIENTE
     )
 
+    notificaciones_inapp.notificar_cliente(
+        db,
+        id_usuario=solicitud.id_usuario,
+        tipo="cancelada_plomero",
+        titulo="El profesional canceló ⚠️",
+        mensaje="El plomero canceló el trabajo. Podés buscar nuevos profesionales sin volver a crear la solicitud.",
+        id_solicitud=id_solicitud,
+    )
+
     solicitud_actualizada = solicitud_repository.obtener_por_id(
         db,
         id_solicitud
@@ -829,12 +948,26 @@ def cancelar_plomero(
 # LISTADOS
 # ─────────────────────────────────────────────
 
+def _con_flags_calificacion(db, s, r):
+    """Agrega a la respuesta si cada parte ya calificó y el total de la boleta."""
+    r["cliente_califico"] = calificacion_repository.ya_califico(db, s.id_solicitud, "cliente")
+    r["plomero_califico"] = calificacion_repository.ya_califico(db, s.id_solicitud, "plomero")
+    r["total_boleta"] = material_repository.total_por_solicitud(db, s.id_solicitud)
+    return r
+
+
 def listar_por_usuario(db: Session, id_usuario: int):
-    return [_to_response(s) for s in solicitud_repository.listar_por_usuario(db, id_usuario)]
+    return [
+        _con_flags_calificacion(db, s, _to_response(s))
+        for s in solicitud_repository.listar_por_usuario(db, id_usuario)
+    ]
 
 
 def listar_por_plomero(db: Session, id_plomero: int):
-    return [_to_response(s) for s in solicitud_repository.listar_por_plomero(db, id_plomero)]
+    return [
+        _con_flags_calificacion(db, s, _to_response(s))
+        for s in solicitud_repository.listar_por_plomero(db, id_plomero)
+    ]
 
 
 def obtener_por_id(db: Session, id_solicitud: int):

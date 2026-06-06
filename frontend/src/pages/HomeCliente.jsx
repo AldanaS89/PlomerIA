@@ -1,6 +1,8 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import api from "../services/api";           // axios instance con interceptor de token
 import { useAuthStore } from "../store/authStore"; // zustand store
+import ChatWidget from "../components/ChatWidget";
+import BoletaMateriales from "../components/BoletaMateriales"; // chat flotante cliente/plomero
 
 // ─── CONSTANTS ───────────────────────────────────────────────────────────────
 
@@ -1267,7 +1269,17 @@ function SolicitudCard({ h, onReSolicitar }) {
         </div>
       )}
 
-      {(estadoNorm === "pendiente" || estadoNorm === "en_progreso") && !vencida && (
+      {h.presupuesto_max > 0 && (
+        <div style={{ background: "#FFFBEB", border: "1px solid #FDE68A", borderRadius: "10px",
+          padding: "10px 14px", marginTop: "12px", fontFamily: "'DM Sans',sans-serif",
+          fontSize: "12px", color: "#92400E" }}>
+          💰 Presupuesto estimado (materiales): <strong>${Number(h.presupuesto_min || 0).toLocaleString("es-AR")} – ${Number(h.presupuesto_max || 0).toLocaleString("es-AR")}</strong>
+        </div>
+      )}
+
+      <BoletaMateriales idSolicitud={h.id_solicitud} diagnostico={h.diagnostico_ia || h.etiqueta_ia} fecha={h.fecha} />
+
+      {(estadoNorm === "pendiente" || estadoNorm === "en_progreso" || estadoNorm === "en_camino") && !vencida && (
         <CancelarSolicitudBtn idSolicitud={h.id_solicitud} />
       )}
     </div>
@@ -1419,18 +1431,134 @@ function ScreenMiSolicitud({ historial, loading, onNav, onReSolicitar }) {
 }
 
 
+// ─── RE-SOLICITAR A UN PLOMERO ESPECÍFICO (inline, desde Finalizados) ─────────
+
+function ReSolicitarForm({ plomeroId, plomeroNombre, onResolicitado, onCancel }) {
+  const [plomero, setPlomero]   = useState(null);
+  const [turno, setTurno]       = useState(null);
+  const [problema, setProblema] = useState("");
+  const [enviando, setEnviando] = useState(false);
+  const [error, setError]       = useState("");
+
+  useEffect(() => {
+    api.get(`/plomeros/${plomeroId}`)
+      .then(res => setPlomero(res.data))
+      .catch(() => setPlomero({ id_plomero: plomeroId, agenda: null }));
+  }, [plomeroId]);
+
+  const hayAgenda = plomero?.agenda && Object.values(plomero.agenda).some(Boolean);
+  const puedeEnviar = (!!turno || (plomero && !hayAgenda)) && problema.trim().length > 0 && !enviando;
+
+  const enviar = async () => {
+    if (!puedeEnviar) return;
+    setEnviando(true); setError("");
+    try {
+      const resp = await api.post("/solicitudes/", {
+        descripcion_raw:            problema,
+        solo_mujeres:               false,
+        localidad_evento:           useAuthStore.getState().user?.localidad || "Sin especificar",
+        latitud_evento:             -34.85,
+        longitud_evento:            -58.38,
+        ids_plomeros_seleccionados: [plomeroId],
+        turnos_por_plomero:         turno ? { [String(plomeroId)]: turno } : {},
+      });
+      onResolicitado(resp.data);
+    } catch (e) {
+      setError(e.response?.data?.detail || e.message);
+      setEnviando(false);
+    }
+  };
+
+  return (
+    <div style={{ marginTop: "14px", borderTop: "1px solid #F1F5F9", paddingTop: "14px" }}>
+      <div style={{ fontFamily: "'DM Sans',sans-serif", fontWeight: "800",
+        fontSize: "14px", color: "#0F172A", marginBottom: "10px" }}>
+        Volver a solicitar a {plomeroNombre}
+      </div>
+
+      {!plomero ? (
+        <div style={{ display: "flex", justifyContent: "center", padding: "16px" }}>
+          <Spinner size={20} />
+        </div>
+      ) : (
+        <>
+          {hayAgenda ? (
+            <TurnoSelector
+              plomero={plomero}
+              turnoActual={turno}
+              onSelect={(_id, t) => setTurno(t)}
+            />
+          ) : (
+            <div style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "12px",
+              color: "#94A3B8", fontStyle: "italic", marginBottom: "8px" }}>
+              Este profesional coordinará el horario directamente.
+            </div>
+          )}
+
+          {(turno || !hayAgenda) && (
+            <div style={{ marginTop: "10px" }}>
+              <div style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "12px",
+                fontWeight: "700", color: "#64748B", marginBottom: "6px" }}>
+                Contanos el problema
+              </div>
+              <textarea
+                value={problema}
+                onChange={e => setProblema(e.target.value)}
+                placeholder="Describí qué necesitás resolver..."
+                rows={3}
+                style={{ width: "100%", borderRadius: "10px", padding: "10px 12px",
+                  border: "1.5px solid #E2E8F0", fontFamily: "'DM Sans',sans-serif",
+                  fontSize: "13px", color: "#0F172A", resize: "none",
+                  outline: "none", boxSizing: "border-box", background: "#F8FAFC" }}
+              />
+            </div>
+          )}
+
+          <div style={{ display: "flex", gap: "8px", marginTop: "10px" }}>
+            <button onClick={onCancel} style={{
+              background: "#F8FAFC", border: "1.5px solid #E2E8F0", borderRadius: "10px",
+              padding: "10px 14px", fontFamily: "'DM Sans',sans-serif", fontWeight: "600",
+              fontSize: "13px", color: "#475569", cursor: "pointer" }}>
+              Cancelar
+            </button>
+            <button onClick={enviar} disabled={!puedeEnviar} style={{
+              flex: 1, background: puedeEnviar ? "linear-gradient(135deg,#3B82F6,#2563EB)" : "#E2E8F0",
+              color: puedeEnviar ? "#fff" : "#94A3B8", border: "none", borderRadius: "10px",
+              padding: "10px", fontFamily: "'DM Sans',sans-serif", fontWeight: "700",
+              fontSize: "13px", cursor: puedeEnviar ? "pointer" : "not-allowed",
+              display: "flex", alignItems: "center", justifyContent: "center", gap: "8px" }}>
+              {enviando ? <Spinner size={14} color="#fff" /> : null}
+              Enviar solicitud
+            </button>
+          </div>
+
+          {error && (
+            <div style={{ marginTop: "8px", color: "#B91C1C", fontSize: "12px",
+              fontFamily: "'DM Sans',sans-serif", fontWeight: "600" }}>
+              {error}
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
 // ─── SCREEN: TRABAJOS FINALIZADOS ─────────────────────────────────────────────
 
-function ScreenTrabajosFinalizados({ historial, loading, onSolicitarDeNuevo }) {
+function ScreenTrabajosFinalizados({ historial, loading, onResolicitado }) {
   const [rating, setRating]     = useState({});
   const [comentario, setComent] = useState({});
   const [valorado, setValorado] = useState({});
   const [loadingCal, setLoadingCal] = useState({});
+  const [errorCal, setErrorCal] = useState({});
+  const [reSolic, setReSolic] = useState(null); // id del trabajo expandido para re-solicitar
 
   const finalizados = historial
     .filter(h => {
-      const e = (h.estado || "").toUpperCase();
-      return e === "completada" || e === "pendiente_calificacion";
+      const e = (h.estado || "").toLowerCase();
+      return e === "completada" || e === "completado"
+        || e === "finalizado" || e === "pendiente_calificacion";
     })
     .sort((a, b) => new Date(b.fecha) - new Date(a.fecha));
 
@@ -1438,6 +1566,7 @@ function ScreenTrabajosFinalizados({ historial, loading, onSolicitarDeNuevo }) {
     const stars = rating[h.id_solicitud];
     if (!stars) return;
     setLoadingCal(prev => ({ ...prev, [h.id_solicitud]: true }));
+    setErrorCal(prev => ({ ...prev, [h.id_solicitud]: null }));
     try {
       await api.post(`/calificaciones/${h.id_solicitud}`, {
         estrellas: stars,
@@ -1445,7 +1574,10 @@ function ScreenTrabajosFinalizados({ historial, loading, onSolicitarDeNuevo }) {
       });
       setValorado(prev => ({ ...prev, [h.id_solicitud]: true }));
     } catch (e) {
-      console.error(e);
+      setErrorCal(prev => ({
+        ...prev,
+        [h.id_solicitud]: e.response?.data?.detail || "No se pudo enviar la calificación.",
+      }));
     } finally {
       setLoadingCal(prev => ({ ...prev, [h.id_solicitud]: false }));
     }
@@ -1485,20 +1617,18 @@ function ScreenTrabajosFinalizados({ historial, loading, onSolicitarDeNuevo }) {
           }}>
             {/* Card del plomero */}
             <div style={{ display: "flex", gap: "14px", alignItems: "center", marginBottom: "14px" }}>
-              <Avatar src={h.plomero?.foto_perfil_path}
-                nombre={h.plomero?.nombre || h.nombre_plomero?.split(" ")[0] || "P"}
-                apellido={h.plomero?.apellido || h.nombre_plomero?.split(" ")[1] || ""}
+              <Avatar src={h.foto_plomero || h.plomero?.foto_perfil_path}
+                nombre={h.nombre_plomero?.split(" ")[0] || h.plomero?.nombre || "P"}
+                apellido={h.nombre_plomero?.split(" ").slice(1).join(" ") || h.plomero?.apellido || ""}
                 size={56} />
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontFamily: "'DM Sans',sans-serif", fontWeight: "800",
                   fontSize: "16px", color: "#0F172A" }}>
-                  {h.plomero?.nombre || h.nombre_plomero || "Plomero"}
-                  {" "}
-                  {h.plomero?.apellido || ""}
+                  {h.nombre_plomero || (h.plomero ? `${h.plomero.nombre} ${h.plomero.apellido}` : "Plomero")}
                 </div>
                 <div style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "12px",
                   color: "#64748B", marginTop: "2px" }}>
-                  📍 {h.plomero?.localidad || "—"}
+                  📍 {h.localidad_plomero || h.plomero?.localidad || "—"}
                   {h.plomero?.puntuacion > 0 && (
                     <span style={{ marginLeft: "8px" }}>
                       ⭐ {h.plomero.puntuacion.toFixed(1)}
@@ -1512,17 +1642,19 @@ function ScreenTrabajosFinalizados({ historial, loading, onSolicitarDeNuevo }) {
                   }) : ""}
                 </div>
               </div>
-              {/* Botón volver a contactar */}
-              <button onClick={() => onSolicitarDeNuevo(h)}
+              {/* Botón volver a contactar — abre el formulario inline */}
+              <button onClick={() => setReSolic(reSolic === h.id_solicitud ? null : h.id_solicitud)}
                 style={{
-                  background: "linear-gradient(135deg,#3B82F6,#2563EB)",
-                  color: "#fff", border: "none", borderRadius: "10px",
+                  background: reSolic === h.id_solicitud ? "#EFF6FF" : "linear-gradient(135deg,#3B82F6,#2563EB)",
+                  color: reSolic === h.id_solicitud ? "#1D4ED8" : "#fff",
+                  border: reSolic === h.id_solicitud ? "1.5px solid #BFDBFE" : "none",
+                  borderRadius: "10px",
                   padding: "8px 14px", fontFamily: "'DM Sans',sans-serif",
                   fontWeight: "700", fontSize: "12px", cursor: "pointer",
                   whiteSpace: "nowrap", flexShrink: 0,
-                  boxShadow: "0 2px 8px rgba(59,130,246,0.3)",
+                  boxShadow: reSolic === h.id_solicitud ? "none" : "0 2px 8px rgba(59,130,246,0.3)",
                 }}>
-                Contactar de nuevo
+                {reSolic === h.id_solicitud ? "Cerrar" : "Contactar de nuevo"}
               </button>
             </div>
 
@@ -1534,13 +1666,23 @@ function ScreenTrabajosFinalizados({ historial, loading, onSolicitarDeNuevo }) {
               "{h.descripcion_raw}"
             </div>
 
+            {/* Boleta de materiales del trabajo (solo lectura) */}
+            <BoletaMateriales idSolicitud={h.id_solicitud} diagnostico={h.diagnostico_ia || h.etiqueta_ia} fecha={h.fecha} />
+
             {/* Calificación */}
-            {valorado[h.id_solicitud]
+            {(h.cliente_califico || valorado[h.id_solicitud])
               ? <div style={{ background: "#F0FDF4", border: "1px solid #86EFAC",
                   borderRadius: "10px", padding: "10px 14px",
                   fontFamily: "'DM Sans',sans-serif", fontSize: "13px",
                   color: "#15803D", fontWeight: "600" }}>
                   ✓ Gracias por tu valoración
+                </div>
+              : (h.estado || "").toLowerCase() !== "pendiente_calificacion"
+              ? <div style={{ background: "#F8FAFC", border: "1px solid #E2E8F0",
+                  borderRadius: "10px", padding: "10px 14px",
+                  fontFamily: "'DM Sans',sans-serif", fontSize: "13px",
+                  color: "#94A3B8", fontWeight: "600" }}>
+                  Este trabajo ya está cerrado y no admite calificación.
                 </div>
               : <div>
                   <div style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "12px",
@@ -1593,10 +1735,25 @@ function ScreenTrabajosFinalizados({ historial, loading, onSolicitarDeNuevo }) {
                         {loadingCal[h.id_solicitud] ? <Spinner size={14} color="#fff" /> : null}
                         Enviar valoración ⭐
                       </button>
+                      {errorCal[h.id_solicitud] && (
+                        <div style={{ marginTop: "8px", color: "#B91C1C", fontSize: "12px",
+                          fontFamily: "'DM Sans',sans-serif", fontWeight: "600" }}>
+                          {errorCal[h.id_solicitud]}
+                        </div>
+                      )}
                     </>
                   )}
                 </div>
             }
+
+            {reSolic === h.id_solicitud && (
+              <ReSolicitarForm
+                plomeroId={h.id_plomero}
+                plomeroNombre={h.nombre_plomero || h.plomero?.nombre || "este profesional"}
+                onResolicitado={(data) => { setReSolic(null); onResolicitado && onResolicitado(data); }}
+                onCancel={() => setReSolic(null)}
+              />
+            )}
           </div>
         ))
       }
@@ -1606,7 +1763,7 @@ function ScreenTrabajosFinalizados({ historial, loading, onSolicitarDeNuevo }) {
 
 // ─── SCREEN: NOTIFICACIONES ───────────────────────────────────────────────────
 
-function ScreenNotificaciones({ notifs, onMark }) {
+function ScreenNotificaciones({ notifs, onMark, onClear }) {
   return (
     <div style={{ maxWidth: "600px", margin: "0 auto", padding: "32px 24px" }}>
       <div style={{ display: "flex", justifyContent: "space-between",
@@ -1615,13 +1772,22 @@ function ScreenNotificaciones({ notifs, onMark }) {
           fontSize: "22px", color: "#0F172A", letterSpacing: "-0.4px", margin: 0 }}>
           Notificaciones
         </h1>
-        {notifs.some(n => !n.leida) && (
-          <button onClick={onMark} style={{
-            background: "transparent", border: "none",
-            fontFamily: "'DM Sans',sans-serif", fontWeight: "600",
-            fontSize: "13px", color: "#3B82F6", cursor: "pointer",
-          }}>Marcar todas como leídas</button>
-        )}
+        <div style={{ display: "flex", gap: "14px", alignItems: "center" }}>
+          {notifs.some(n => !n.leida) && (
+            <button onClick={onMark} style={{
+              background: "transparent", border: "none",
+              fontFamily: "'DM Sans',sans-serif", fontWeight: "600",
+              fontSize: "13px", color: "#3B82F6", cursor: "pointer",
+            }}>Marcar todas como leídas</button>
+          )}
+          {notifs.length > 0 && (
+            <button onClick={onClear} style={{
+              background: "transparent", border: "none",
+              fontFamily: "'DM Sans',sans-serif", fontWeight: "600",
+              fontSize: "13px", color: "#EF4444", cursor: "pointer",
+            }}>Borrar todas</button>
+          )}
+        </div>
       </div>
 
       {notifs.length === 0
@@ -1664,50 +1830,51 @@ function ScreenNotificaciones({ notifs, onMark }) {
   );
 }
 
-// ─── NOTIFICACIONES DERIVADAS DE SOLICITUDES (polling) ───────────────────────
+// ─── NOTIFICACIONES (backend persistente) ────────────────────────────────────
 
-function useSolicitudNotifs(token) {
+const ICONOS_NOTIF = {
+  nueva_solicitud:    "📩",
+  urgencia:           "🚨",
+  solicitud_aceptada: "✅",
+  en_camino:          "🚗",
+  trabajo_finalizado: "🏁",
+  cancelada_cliente:  "❌",
+  cancelada_plomero:  "⚠️",
+  mensaje:            "💬",
+};
+
+function tiempoRelativo(fechaISO) {
+  if (!fechaISO) return "";
+  const normal = (fechaISO.endsWith("Z") || fechaISO.includes("+")) ? fechaISO : fechaISO + "Z";
+  const f = new Date(normal);
+  const seg = Math.floor((Date.now() - f.getTime()) / 1000);
+  if (seg < 60)    return "Hace un momento";
+  if (seg < 3600)  return `Hace ${Math.floor(seg / 60)} min`;
+  if (seg < 86400) return `Hace ${Math.floor(seg / 3600)} h`;
+  return `Hace ${Math.floor(seg / 86400)} d`;
+}
+
+function mapNotif(n) {
+  return {
+    id:      n.id_notificacion,
+    icon:    ICONOS_NOTIF[n.tipo] || "🔔",
+    titulo:  n.titulo,
+    mensaje: n.mensaje,
+    tiempo:  tiempoRelativo(n.fecha),
+    leida:   n.leida,
+  };
+}
+
+// Hook reutilizable — consume la pestaña Alertas desde el backend.
+export function useNotificaciones(token) {
   const [notifs, setNotifs] = useState([]);
-  const prevStates = useRef({});
 
   const poll = useCallback(async () => {
     if (!token) return;
     try {
-      // Usamos el endpoint de solicitudes del usuario (ajustá si cambia el route)
-      const res = await api.get("/solicitudes/mis-solicitudes");
+      const res = await api.get("/notificaciones/");
       const arr = Array.isArray(res.data) ? res.data : [];
-      const nuevas = [];
-
-      arr.forEach(s => {
-        const prev = prevStates.current[s.id_solicitud];
-        if (prev && prev !== s.estado) {
-          if (s.estado === "en_progreso") {
-            nuevas.push({
-              id: Date.now() + s.id_solicitud,
-              icon: "✅",
-              titulo: "Solicitud aceptada",
-              mensaje: `${s.nombre_plomero || "Un plomero"} aceptó tu solicitud.`,
-              tiempo: "Ahora",
-              leida: false,
-            });
-          }
-          if (s.estado === "pendiente_calificacion") {
-            nuevas.push({
-              id: Date.now() + s.id_solicitud + 1,
-              icon: "🏁",
-              titulo: "Trabajo finalizado",
-              mensaje: "El trabajo fue marcado como finalizado. ¡Podés valorar el servicio!",
-              tiempo: "Ahora",
-              leida: false,
-            });
-          }
-        }
-        prevStates.current[s.id_solicitud] = s.estado;
-      });
-
-      if (nuevas.length > 0) {
-        setNotifs(prev => [...nuevas, ...prev]);
-      }
+      setNotifs(arr.map(mapNotif));
     } catch {
       // silencioso — no mostramos error de polling
     }
@@ -1720,7 +1887,17 @@ function useSolicitudNotifs(token) {
     return () => clearInterval(interval);
   }, [token, poll]);
 
-  return [notifs, setNotifs];
+  const marcarTodas = useCallback(async () => {
+    setNotifs(prev => prev.map(x => ({ ...x, leida: true })));
+    try { await api.patch("/notificaciones/leer-todas"); } catch { /* noop */ }
+  }, []);
+
+  const eliminarTodas = useCallback(async () => {
+    setNotifs([]);
+    try { await api.delete("/notificaciones/"); } catch { /* noop */ }
+  }, []);
+
+  return [notifs, marcarTodas, eliminarTodas];
 }
 
 // ─── HOME CLIENTE ─────────────────────────────────────────────────────────────
@@ -1740,8 +1917,17 @@ export default function HomeCliente({ onLogout }) {
 
   // Token y user desde zustand (persist lo restaura de localStorage automáticamente)
   const token = useAuthStore(s => s.token);
-  const [notifs, setNotifs] = useSolicitudNotifs(token);
+  const [notifs, marcarTodasNotifs, eliminarTodasNotifs] = useNotificaciones(token);
   const notifCount = notifs.filter(n => !n.leida).length;
+
+  // Conversaciones activas para el chat: solo trabajos en curso (con plomero)
+  const conversacionesActivas = historial
+    .filter(h => ["en_progreso", "en_camino"].includes((h.estado || "").toLowerCase()))
+    .map(h => ({
+      id_solicitud: h.id_solicitud,
+      titulo:       h.nombre_plomero || "Profesional",
+      subtitulo:    h.localidad_plomero || h.etiqueta_ia || "Trabajo en curso",
+    }));
 
   // Cargar historial — función reutilizable para poder refrescarlo
   const cargarHistorial = useCallback(async () => {
@@ -1816,6 +2002,13 @@ export default function HomeCliente({ onLogout }) {
     setScreen("problema");
   };
 
+  // Tras re-solicitar a un plomero específico desde Finalizados:
+  // refresca el historial y lleva a "Mis solicitudes" (queda como solicitud activa)
+  const handleResolicitado = () => {
+    cargarHistorial();
+    setScreen("mi-solicitud");
+  };
+
   const handleEnviar = (resp) => {
     setSolicitud(resp);
     if (resp) setHistorial(prev => [resp, ...prev]);
@@ -1864,15 +2057,19 @@ export default function HomeCliente({ onLogout }) {
         <ScreenTrabajosFinalizados
           historial={historial}
           loading={loadingHistorial}
-          onSolicitarDeNuevo={handleSolicitarDeNuevo}
+          onResolicitado={handleResolicitado}
         />
       )}
       {screen === "notificaciones" && (
         <ScreenNotificaciones
           notifs={notifs}
-          onMark={() => setNotifs(n => n.map(x => ({ ...x, leida: true })))}
+          onMark={marcarTodasNotifs}
+          onClear={eliminarTodasNotifs}
         />
       )}
+
+      {/* Chat flotante — visible siempre, activo solo con trabajos en curso */}
+      <ChatWidget conversaciones={conversacionesActivas} />
     </div>
   );
 }

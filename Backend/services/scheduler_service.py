@@ -181,6 +181,21 @@ def _enviar_alertas_recordatorio(db) -> int:
 
 
 # ─────────────────────────────────────────────
+# TAREA: limpiar notificaciones viejas
+# ─────────────────────────────────────────────
+
+DIAS_RETENCION_NOTIFICACIONES = 7
+
+
+def _limpiar_notificaciones_viejas(db) -> int:
+    """Borra notificaciones con más de 7 días para que la lista no crezca infinito."""
+    from datetime import timedelta
+    from repositories import notificacion_repository
+    corte = datetime.utcnow() - timedelta(days=DIAS_RETENCION_NOTIFICACIONES)
+    return notificacion_repository.eliminar_antiguas(db, corte)
+
+
+# ─────────────────────────────────────────────
 # LOOP PRINCIPAL
 # ─────────────────────────────────────────────
 
@@ -192,11 +207,12 @@ def _run_scheduler() -> None:
         try:
             cerradas  = _cerrar_calificaciones_vencidas(db)
             alertadas = _enviar_alertas_recordatorio(db)
+            limpiadas = _limpiar_notificaciones_viejas(db)
 
-            if cerradas or alertadas:
+            if cerradas or alertadas or limpiadas:
                 logger.info(
-                    "Scheduler: %s solicitudes cerradas, %s alertas enviadas",
-                    cerradas, alertadas,
+                    "Scheduler: %s cerradas, %s alertas, %s notificaciones viejas borradas",
+                    cerradas, alertadas, limpiadas,
                 )
         except Exception as e:
             logger.error("Error en scheduler: %s", e)

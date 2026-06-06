@@ -63,6 +63,7 @@ class Solicitud(Base):
 
     etiqueta_ia     = Column(String, nullable=True)
     urgencia_ia     = Column(String, nullable=True)
+    diagnostico_ia  = Column(String, nullable=True)   # diagnóstico técnico para el plomero
     presupuesto_min = Column(Float,  nullable=True)
     presupuesto_max = Column(Float,  nullable=True)
 

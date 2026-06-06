@@ -14,7 +14,6 @@ from services.conection_manager import manager
 from services import mensajeria_service
 
 from repositories import solicitud_repository
-from models.solicitud import EstadoSolicitud
 
 
 router = APIRouter()
@@ -35,7 +34,7 @@ async def chat_ws(
     try:
         user = decode_token_ws(token)
 
-    except:
+    except Exception:
         await websocket.close(code=1008)
         return
 
@@ -57,7 +56,7 @@ async def chat_ws(
         await websocket.close(code=1008)
         return
 
-    if solicitud.estado != EstadoSolicitud.EN_PROGRESO:
+    if solicitud.estado not in mensajeria_service.ESTADOS_CHAT_ACTIVO:
         await websocket.close(code=1008)
         return
 

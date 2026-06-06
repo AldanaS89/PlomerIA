@@ -5,7 +5,10 @@ from database import Base
 class Mensaje(Base):
     __tablename__ = "mensajes"
 
-    id_mensaje = Column(Integer, primary_key=True)
+    # La tabla ya existía con la columna PK llamada "id".
+    # Mapeamos el atributo id_mensaje a esa columna real para no romper la
+    # base existente (create_all no altera tablas ya creadas).
+    id_mensaje = Column("id", Integer, primary_key=True)
     id_solicitud = Column(Integer, ForeignKey("solicitudes.id_solicitud"))
 
     emisor_id = Column(Integer)

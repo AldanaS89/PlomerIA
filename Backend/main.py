@@ -15,6 +15,8 @@ from routers import (
     calificaciones_routes,
 )
 from routers.mensajes_router import router as mensajes_router
+from routers.notificaciones_router import router as notificaciones_router
+from routers.material_router import router as material_router
 from services.scheduler_service import iniciar_scheduler
 
 app = FastAPI(title="PlomerIA API")
@@ -34,6 +36,24 @@ app.add_middleware(
 # DB
 # ─────────────────────────────
 Base.metadata.create_all(bind=engine)
+
+# ─────────────────────────────
+# MIGRACIÓN LIVIANA — agrega columnas nuevas a tablas ya existentes
+# (create_all no altera tablas creadas previamente)
+# ─────────────────────────────
+def _migrar_columnas():
+    from sqlalchemy import text, inspect
+    inspector = inspect(engine)
+    try:
+        cols = [c["name"] for c in inspector.get_columns("solicitudes")]
+        if "diagnostico_ia" not in cols:
+            with engine.begin() as conn:
+                conn.execute(text("ALTER TABLE solicitudes ADD COLUMN diagnostico_ia VARCHAR"))
+                print("[migracion] Columna diagnostico_ia agregada a solicitudes")
+    except Exception as e:
+        print(f"[migracion] No se pudo migrar diagnostico_ia: {e}")
+
+_migrar_columnas()
 
 # ─────────────────────────────
 # ARCHIVOS ESTÁTICOS — fotos de perfil
@@ -90,6 +110,18 @@ app.include_router(
     mensajes_router,
     prefix=f"{API_PREFIX}/mensajes",
     tags=["Mensajes"]
+)
+
+app.include_router(
+    notificaciones_router,
+    prefix=f"{API_PREFIX}/notificaciones",
+    tags=["Notificaciones"]
+)
+
+app.include_router(
+    material_router,
+    prefix=f"{API_PREFIX}/boleta",
+    tags=["Boleta"]
 )
 
 # WebSocket — sin prefix porque el path ya lo define el router

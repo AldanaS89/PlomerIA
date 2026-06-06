@@ -3,7 +3,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
 from schemas.calificacion import CalificacionRequest
-from core.auth import get_usuario_actual
+from core.auth import get_usuario_actual, get_plomero_actual
 from database import get_db
 from services import calificacion_service
 from repositories import solicitud_repository
@@ -31,6 +31,28 @@ def calificar(
         id_cliente   = id_cliente,
         estrellas    = datos.estrellas,
         comentario   = datos.comentario,
+    )
+
+
+@router.post("/plomero/{id_solicitud}")
+def calificar_cliente(
+    id_solicitud: int,
+    datos:        CalificacionRequest,
+    db:           Session = Depends(get_db),
+    id_plomero:   int     = Depends(get_plomero_actual),
+):
+    """
+    El plomero califica al cliente (solo estrellas, sin reseña).
+    Misma lógica polimórfica que la calificación del cliente.
+    Cuando ambos calificaron, la solicitud pasa a COMPLETADA.
+    """
+    return calificacion_service.registrar_calificacion(
+        db           = db,
+        id_solicitud = id_solicitud,
+        id_autor     = id_plomero,
+        rol_autor    = "plomero",
+        estrellas    = datos.estrellas,
+        comentario   = None,
     )
 
 

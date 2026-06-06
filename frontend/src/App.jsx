@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect } from 'react'; 
 import Login from './pages/Login';
 import Registro from './pages/Registro';
 import RegistroPlomero from './pages/RegistroPlomero';
@@ -11,9 +11,7 @@ export default function App() {
   const token = useAuthStore(s => s.token);
   const user  = useAuthStore(s => s.user);
 
-  // Determinar la vista inicial según la sesión persistida en localStorage.
-  // Zustand persist restaura token y user antes del primer render,
-  // así que esta lógica corre con los valores reales desde el inicio.
+  // 1. Dejamos que la vista inicial arranque con la lógica normal
   const getVistaInicial = () => {
     if (!token || !user) return 'login';
     if (user.rol === 'plomero') return 'plomero';
@@ -21,6 +19,22 @@ export default function App() {
   };
 
   const [view, setView] = React.useState(getVistaInicial);
+
+   // Esto corre apenas carga la app en el navegador
+  useEffect(() => {
+    const parametros = new URLSearchParams(window.location.search);
+    
+    if (parametros.get('logout') === 'true') {
+      // Borramos el token de Zustand/localStorage por la fuerza
+      localStorage.removeItem('plomeria-auth'); 
+      
+      // Limpiamos la URL para que quede impecable en la exposición
+      window.history.replaceState({}, document.title, window.location.pathname);
+      
+      // Forzamos a React a cambiar la pantalla a 'login' en vivo
+      setView('login');
+    }
+  }, []); // El array vacío asegura que corra una sola vez al cargar
 
   const handleNav = (nuevaVista) => {
     window.scrollTo(0, 0);
