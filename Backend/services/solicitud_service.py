@@ -85,7 +85,7 @@ def _to_response(s):
         "nombre_plomero": None,
         "foto_plomero": None,
         "localidad_plomero": None,
-
+        "turno_solicitado": s.turno_solicitado,
         "invitaciones": [],
     }
 
@@ -260,6 +260,8 @@ def crear_solicitud(
     datos: SolicitudCreate,
     id_usuario: int
 ):
+    
+    
     diagnostico = ia_service.analizar_descripcion(
         datos.descripcion_raw
     )
@@ -274,6 +276,22 @@ def crear_solicitud(
             status_code=403,
             detail="Cuenta suspendida"
         )
+    ids_plomeros = (
+        datos.ids_plomeros_seleccionados or []
+    )
+
+    turno_elegido = None
+
+    if ids_plomeros:
+        turno_elegido = (
+            datos.turnos_por_plomero.get(
+                str(ids_plomeros[0])
+            )
+        )
+
+    print("TURNOS:", datos.turnos_por_plomero)
+    print("IDs seleccionados:", ids_plomeros)
+    print("Turno elegido:", turno_elegido)
 
     solicitud = solicitud_repository.crear(
         db,
@@ -281,8 +299,17 @@ def crear_solicitud(
         datos,
         diagnostico
     )
+    
+    if turno_elegido:
+        solicitud.turno_solicitado = turno_elegido
+        db.commit()
+        db.refresh(solicitud)
 
-    ids_plomeros = datos.ids_plomeros_seleccionados or []
+    print(
+        "Turno guardado:",
+        solicitud.turno_solicitado
+    )
+    
 
     plomeros = []
 
@@ -307,6 +334,7 @@ def crear_solicitud(
         descripcion=datos.descripcion_raw,
         diagnostico=diagnostico,
     )
+
 
     return _to_response(
         solicitud_repository.obtener_por_id(
@@ -718,6 +746,8 @@ def cancelar_plomero(
     id_solicitud: int,
     id_plomero: int
 ):
+    print("ENTRO A CANCELAR_PLOMERO")
+    print("ENTRO A CANCELAR_PLOMERO")
     solicitud = solicitud_repository.obtener_por_id(
         db,
         id_solicitud
@@ -777,6 +807,11 @@ def cancelar_plomero(
     solicitud_actualizada = solicitud_repository.obtener_por_id(
         db,
         id_solicitud
+    )
+    print(
+        "DESPUES:",
+        solicitud_actualizada.estado,
+        solicitud_actualizada.id_plomero
     )
 
     return {

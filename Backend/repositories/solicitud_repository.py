@@ -41,6 +41,14 @@ def crear(
         presupuesto_min=diagnostico["presupuesto_min"],
         presupuesto_max=diagnostico["presupuesto_max"],
         fecha_trabajo=datos.fecha_trabajo,
+        # turno_solicitado=(
+        #     next(
+        #         iter(datos.turnos_por_plomero.values()),
+        #         None
+        #     )
+        #     if datos.turnos_por_plomero
+        #     else None
+        # ),
         estado=EstadoSolicitud.PENDIENTE,
     )
 
