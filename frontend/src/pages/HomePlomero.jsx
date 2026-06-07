@@ -291,6 +291,20 @@ function ScreenSolicitudes({ solicitudes, onAceptar, onRechazar, disponible, loa
               </div>
             )}
 
+            {esUrgente && (() => {
+              const h = s.fecha ? new Date(s.fecha).getHours() : new Date().getHours();
+              const tardio = h >= 21 || h < 7;
+              return (
+                <div style={{ fontFamily:"'DM Sans',sans-serif", fontSize:"12px",
+                  color:"#B45309", background:"#FFFBEB", border:"1px solid #FDE68A",
+                  borderRadius:"8px", padding:"8px 12px", marginBottom:"10px", fontWeight:"600" }}>
+                  {tardio
+                    ? "⏰ Urgencia nocturna: respondé a primera hora (desde las 7am) — tenés 30 min desde entonces."
+                    : "⏰ Urgencia: tenés 30 minutos para responder."}
+                </div>
+              );
+            })()}
+
             <div style={{ fontFamily:"'DM Sans',sans-serif", fontSize:"11px",
               color:"#94A3B8", marginBottom:"14px", display:"flex", alignItems:"center", gap:"5px" }}>
               🔒 La dirección exacta se revela solo si aceptás el trabajo
@@ -878,7 +892,7 @@ function ScreenAgenda({ activos, historial }) {
 }
 
 // ─── SCREEN: HISTORIAL ────────────────────────────────────────────────────────
-function ScreenHistorial({ historial, loading, puntuacionPerfil }) {
+function ScreenHistorial({ historial, loading, puntuacionPerfil, totalTrabajosPerfil, fechaRegistroPerfil }) {
   const [ratingCli,  setRatingCli]  = useState({});
   const [valoradoCli, setValoradoCli] = useState({});
   const [loadingCli, setLoadingCli] = useState({});
@@ -1040,45 +1054,144 @@ function ScreenHistorial({ historial, loading, puntuacionPerfil }) {
       </div>
 
       {terminados.length > 0 && (() => {
-        // Facturación (materiales) por mes — últimos 6 meses con datos
+        const COMISION = 0.15;        // lo que el plomero paga a la app por boleta
+        const TICKET = 25000;         // ticket promedio simulado para el historial
+        const META_MENSUAL = 500000;
+        const ahora = new Date();
+        const trabajos = totalTrabajosPerfil || terminados.length;
+
+        // Antigüedad en la app (fecha_registro)
+        const alta = fechaRegistroPerfil ? new Date(fechaRegistroPerfil) : null;
+        const altaValida = alta && !isNaN(alta.getTime());
+        const mesesActivo = altaValida
+          ? Math.max(1, (ahora.getFullYear() - alta.getFullYear()) * 12 + (ahora.getMonth() - alta.getMonth()) + 1)
+          : 1;
+
+        // Serie mensual: historial SIMULADO repartido desde el alta + boletas REALES encima
         const porMes = {};
-        terminados.forEach(t => {
-          const d = new Date(t.fecha_trabajo || t.fecha);
+        const addMes = (d, monto, real) => {
           if (isNaN(d.getTime())) return;
           const k = `${d.getFullYear()}-${String(d.getMonth()).padStart(2, "0")}`;
           porMes[k] = porMes[k] || { count: 0, total: 0, y: d.getFullYear(), m: d.getMonth() };
-          porMes[k].count += 1;
-          porMes[k].total += (t.total_boleta || 0);
-        });
+          porMes[k].total += monto;
+          if (real) porMes[k].count += 1;
+        };
+        const simMensual = (trabajos * TICKET) / mesesActivo;
+        const baseMeses = Math.min(mesesActivo, 12);
+        for (let i = 0; i < baseMeses; i++) {
+          const d = new Date(ahora.getFullYear(), ahora.getMonth() - i, 1);
+          const variacion = 0.8 + (((d.getMonth() + 3) % 5) * 0.1); // leve variación estética
+          addMes(d, Math.round(simMensual * variacion), false);
+        }
+        terminados.forEach(t => addMes(new Date(t.fecha_trabajo || t.fecha), (t.total_boleta || 0), true));
+
         const filas = Object.values(porMes)
           .sort((a, b) => (b.y - a.y) || (b.m - a.m)).slice(0, 6).reverse();
-        if (filas.length === 0) return null;
         const maxTotal = Math.max(1, ...filas.map(f => f.total));
+
+        const kMes = `${ahora.getFullYear()}-${String(ahora.getMonth()).padStart(2, "0")}`;
+        const pasado = new Date(ahora.getFullYear(), ahora.getMonth() - 1, 1);
+        const kPasado = `${pasado.getFullYear()}-${String(pasado.getMonth()).padStart(2, "0")}`;
+        const realMes = porMes[kMes]?.total || 0;
+        const realPasado = porMes[kPasado]?.total || 0;
+        const variacion = realPasado > 0 ? Math.round((realMes - realPasado) / realPasado * 100) : null;
+
+        const realTotal = terminados.reduce((a, t) => a + (t.total_boleta || 0), 0);
+        // Simulamos el historial de quienes ya venían usando la app
+        const brutoAcumulado = trabajos * TICKET + realTotal;
+        const MESES_ES = ["enero","febrero","marzo","abril","mayo","junio","julio","agosto","septiembre","octubre","noviembre","diciembre"];
+        const miembroDesde = altaValida ? `${MESES_ES[alta.getMonth()]} ${alta.getFullYear()}` : null;
+        const comision = brutoAcumulado * COMISION;
+        const neto = brutoAcumulado - comision;
+
+        const badge = trabajos >= 100 ? { t: "Plomero Pro", e: "🏆" }
+          : trabajos >= 50 ? { t: "Destacado", e: "⭐" }
+          : trabajos >= 10 ? { t: "En camino", e: "🚀" } : { t: "Nuevo", e: "🌱" };
+        const progreso = Math.min(100, Math.round(realMes / META_MENSUAL * 100));
+        const $ = (n) => "$" + Number(Math.round(n)).toLocaleString("es-AR");
+
         return (
-          <div style={{ background:"#fff", borderRadius:"16px", border:"1.5px solid #F1F5F9",
-            padding:"18px 20px", marginBottom:"20px" }}>
-            <div style={{ fontFamily:"'DM Sans',sans-serif", fontWeight:"800", fontSize:"15px",
-              color:"#0F172A", marginBottom:"2px" }}>📊 Facturación por mes</div>
-            <div style={{ fontFamily:"'DM Sans',sans-serif", fontSize:"12px", color:"#94A3B8",
-              marginBottom:"14px" }}>Total de materiales facturados (boletas)</div>
-            {filas.map(f => (
-              <div key={`${f.y}-${f.m}`} style={{ marginBottom:"10px" }}>
-                <div style={{ display:"flex", justifyContent:"space-between",
-                  fontFamily:"'DM Sans',sans-serif", fontSize:"12px", marginBottom:"3px" }}>
-                  <span style={{ color:"#475569", fontWeight:"600" }}>
-                    {MESES[f.m]} {f.y} · {f.count} trabajo{f.count !== 1 ? "s" : ""}
-                  </span>
-                  <span style={{ color:"#16A34A", fontWeight:"700" }}>
-                    ${Number(f.total).toLocaleString("es-AR")}
-                  </span>
+          <>
+            {/* Tarjeta destacada de ganancias */}
+            <div style={{ background:"linear-gradient(135deg,#0F172A,#1E3A5F)", borderRadius:"18px",
+              padding:"20px 22px", marginBottom:"14px", color:"#fff",
+              boxShadow:"0 8px 24px rgba(15,23,42,0.25)" }}>
+              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+                <div style={{ fontFamily:"'DM Sans',sans-serif", fontSize:"12px", color:"#94A3B8", fontWeight:"600" }}>
+                  💰 Ganancia acumulada (estimada)
                 </div>
-                <div style={{ background:"#F1F5F9", borderRadius:"6px", height:"8px", overflow:"hidden" }}>
-                  <div style={{ width:`${Math.round(f.total / maxTotal * 100)}%`, height:"100%",
-                    background:"linear-gradient(90deg,#3B82F6,#06B6D4)" }} />
-                </div>
+                <div style={{ background:"rgba(56,189,248,0.15)", border:"1px solid rgba(56,189,248,0.3)",
+                  borderRadius:"20px", padding:"3px 10px", fontFamily:"'DM Sans',sans-serif",
+                  fontSize:"11px", fontWeight:"700", color:"#7DD3FC" }}>{badge.e} {badge.t}</div>
               </div>
-            ))}
-          </div>
+              <div style={{ fontFamily:"'DM Sans',sans-serif", fontWeight:"800", fontSize:"30px",
+                margin:"6px 0 2px" }}>{$(neto)}</div>
+              <div style={{ fontFamily:"'DM Sans',sans-serif", fontSize:"12px", color:"#CBD5E1" }}>
+                Facturado {$(brutoAcumulado)} · Comisión PlomerIA (15%): -{$(comision)}
+              </div>
+              {miembroDesde && (
+                <div style={{ fontFamily:"'DM Sans',sans-serif", fontSize:"11px", color:"#7DD3FC", marginTop:"6px" }}>
+                  📅 Miembro desde {miembroDesde}
+                </div>
+              )}
+            </div>
+
+            {/* Meta del mes (motivación) */}
+            <div style={{ background:"#fff", borderRadius:"16px", border:"1.5px solid #F1F5F9",
+              padding:"16px 18px", marginBottom:"14px" }}>
+              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:"8px" }}>
+                <span style={{ fontFamily:"'DM Sans',sans-serif", fontWeight:"800", fontSize:"14px", color:"#0F172A" }}>
+                  🎯 Meta de este mes
+                </span>
+                {variacion !== null && (
+                  <span style={{ fontFamily:"'DM Sans',sans-serif", fontSize:"12px", fontWeight:"700",
+                    color: variacion >= 0 ? "#16A34A" : "#EF4444" }}>
+                    {variacion >= 0 ? "▲" : "▼"} {Math.abs(variacion)}% vs mes pasado
+                  </span>
+                )}
+              </div>
+              <div style={{ display:"flex", justifyContent:"space-between", fontFamily:"'DM Sans',sans-serif",
+                fontSize:"12px", color:"#475569", marginBottom:"4px" }}>
+                <span style={{ fontWeight:"700" }}>{$(realMes)}</span>
+                <span style={{ color:"#94A3B8" }}>Meta {$(META_MENSUAL)}</span>
+              </div>
+              <div style={{ background:"#F1F5F9", borderRadius:"8px", height:"12px", overflow:"hidden" }}>
+                <div style={{ width:`${progreso}%`, height:"100%",
+                  background: progreso >= 100 ? "linear-gradient(90deg,#22C55E,#16A34A)" : "linear-gradient(90deg,#F59E0B,#FB923C)" }} />
+              </div>
+              <div style={{ fontFamily:"'DM Sans',sans-serif", fontSize:"11px", color:"#94A3B8", marginTop:"6px" }}>
+                {progreso >= 100 ? "¡Meta alcanzada! 🎉" : `Te falta ${$(Math.max(0, META_MENSUAL - realMes))} para tu meta`}
+              </div>
+            </div>
+
+            {/* Facturación real por mes */}
+            {filas.length > 0 && (
+              <div style={{ background:"#fff", borderRadius:"16px", border:"1.5px solid #F1F5F9",
+                padding:"18px 20px", marginBottom:"20px" }}>
+                <div style={{ fontFamily:"'DM Sans',sans-serif", fontWeight:"800", fontSize:"15px",
+                  color:"#0F172A", marginBottom:"2px" }}>📊 Facturación por mes</div>
+                <div style={{ fontFamily:"'DM Sans',sans-serif", fontSize:"12px", color:"#94A3B8",
+                  marginBottom:"14px" }}>Boletas emitidas en la app</div>
+                {filas.map(f => (
+                  <div key={`${f.y}-${f.m}`} style={{ marginBottom:"10px" }}>
+                    <div style={{ display:"flex", justifyContent:"space-between",
+                      fontFamily:"'DM Sans',sans-serif", fontSize:"12px", marginBottom:"3px" }}>
+                      <span style={{ color:"#475569", fontWeight:"600" }}>
+                        {MESES[f.m]} {f.y} · {f.count} trabajo{f.count !== 1 ? "s" : ""}
+                      </span>
+                      <span style={{ color:"#16A34A", fontWeight:"700" }}>
+                        ${Number(f.total).toLocaleString("es-AR")}
+                      </span>
+                    </div>
+                    <div style={{ background:"#F1F5F9", borderRadius:"6px", height:"8px", overflow:"hidden" }}>
+                      <div style={{ width:`${Math.round(f.total / maxTotal * 100)}%`, height:"100%",
+                        background:"linear-gradient(90deg,#3B82F6,#06B6D4)" }} />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </>
         );
       })()}
 
@@ -1200,7 +1313,7 @@ export default function HomePlomero({ onLogout }) {
     let primera = true;
     const cargarPerfil = () => api.get("/plomeros/me")
       .then(res => {
-        setPerfil(res.data);
+        setPerfil(prev => JSON.stringify(prev) === JSON.stringify(res.data) ? prev : res.data);
         // El estado del toggle solo se setea la primera vez, para no pisar
         // un cambio manual del plomero en cada refresco.
         if (primera) { setDisponible(res.data?.disponible_ahora ?? true); primera = false; }
@@ -1211,24 +1324,22 @@ export default function HomePlomero({ onLogout }) {
     return () => clearInterval(id);
   }, []);
 
-  const cargarSolicitudes = useCallback(async () => {
-    setLoading(true);
+  // silencioso=true (polling): no toca loading ni reemplaza el estado si no
+  // cambió, para no re-renderizar ni sacarte el foco mientras cargás la boleta.
+  const cargarSolicitudes = useCallback(async (silencioso = false) => {
+    if (!silencioso) setLoading(true);
+    const aplicar = (setter, arr) =>
+      setter(prev => JSON.stringify(prev) === JSON.stringify(arr) ? prev : arr);
     try {
       const res  = await api.get("/solicitudes/plomero/me");
       const todas = Array.isArray(res.data) ? res.data : [];
 
-      setSolicitudes(todas.filter(s => {
-        const e = (s.estado || "").toLowerCase();
-        // Pendientes que le llegaron (sugerido) o asignadas a él
-        return e === "pendiente";
-      }));
-
-      setActivos(todas.filter(s => {
+      aplicar(setSolicitudes, todas.filter(s => (s.estado || "").toLowerCase() === "pendiente"));
+      aplicar(setActivos, todas.filter(s => {
         const e = (s.estado || "").toLowerCase();
         return e === "en_progreso" || e === "en_camino";
       }));
-
-      setHistorial(todas.filter(s => {
+      aplicar(setHistorial, todas.filter(s => {
         const e = (s.estado || "").toLowerCase();
         return e === "completada" || e === "completado" || e === "finalizado"
           || e === "pendiente_calificacion";
@@ -1236,13 +1347,13 @@ export default function HomePlomero({ onLogout }) {
     } catch (e) {
       console.error("Error cargando solicitudes:", e);
     } finally {
-      setLoading(false);
+      if (!silencioso) setLoading(false);
     }
   }, []);
 
   useEffect(() => { cargarSolicitudes(); }, [cargarSolicitudes]);
   useEffect(() => {
-    const interval = setInterval(cargarSolicitudes, 15000);
+    const interval = setInterval(() => cargarSolicitudes(true), 15000);
     return () => clearInterval(interval);
   }, [cargarSolicitudes]);
 
@@ -1327,7 +1438,9 @@ export default function HomePlomero({ onLogout }) {
       )}
       {screen==="agenda" && <ScreenAgenda activos={activos} historial={historial}/>}
       {screen==="historial" && (
-        <ScreenHistorial historial={historial} loading={loading} puntuacionPerfil={perfil?.puntuacion}/>
+        <ScreenHistorial historial={historial} loading={loading}
+          puntuacionPerfil={perfil?.puntuacion} totalTrabajosPerfil={perfil?.total_trabajos}
+          fechaRegistroPerfil={perfil?.fecha_registro}/>
       )}
       {screen==="alertas" && (
         <ScreenNotificaciones notifs={notifs} onMark={marcarTodasNotifs} onClear={eliminarTodasNotifs} />

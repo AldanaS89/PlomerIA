@@ -28,6 +28,8 @@ const Login = ({ onNav }) => {
         email:     res.data.email,
         localidad: res.data.localidad,
         direccion: res.data.direccion,
+        latitud:   res.data.latitud,
+        longitud:  res.data.longitud,
         rol:       res.data.tipo,
       };
 

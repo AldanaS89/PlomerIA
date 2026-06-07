@@ -12,8 +12,10 @@ import re
 from typing import TypedDict
 
 from config import GEMINI_API_KEY
+from services import oficios
 
-ESPECIALIDADES = ["PLOMERIA_GENERAL", "DESTAPES", "GAS_MATRICULADO", "OBRA"]
+# Especialidades válidas tomadas del registro de oficios (hoy: plomería).
+ESPECIALIDADES = oficios.especialidades_validas()
 URGENCIAS      = ["NORMAL", "URGENTE"]
 
 # Palabras que sugieren un problema de plomeria/hogar (solo se usan en el
@@ -38,6 +40,7 @@ MIN_PALABRAS   = 2
 
 class DiagnosticoIA(TypedDict):
     etiqueta_ia:     str
+    oficio_ia:       str
     urgencia_ia:     str
     diagnostico_ia:  str
     presupuesto_min: float
@@ -57,6 +60,7 @@ RANGOS = {
 def _invalido(msg: str) -> DiagnosticoIA:
     return {
         "etiqueta_ia":     "PLOMERIA_GENERAL",
+        "oficio_ia":       "",
         "urgencia_ia":     "NORMAL",
         "diagnostico_ia":  "",
         "presupuesto_min": 0.0,
@@ -109,6 +113,7 @@ def _fallback(descripcion: str) -> DiagnosticoIA:
     pmin, pmax = RANGOS.get(etiqueta, (15000.0, 60000.0))
     return {
         "etiqueta_ia":     etiqueta,
+        "oficio_ia":       oficios.oficio_de_especialidad(etiqueta) or "PLOMERIA",
         "urgencia_ia":     urgencia,
         "diagnostico_ia":  _diagnostico_fallback(etiqueta, urgencia),
         "presupuesto_min": pmin,
@@ -169,7 +174,24 @@ Descripción del cliente:
 JSON:"""
 
 
+# Cache en memoria por texto: evita re-llamar a Gemini para la misma descripción
+# (la búsqueda y el alta de la solicitud usan el mismo texto → la 2da es instantánea,
+# y re-solicitar lo mismo no vuelve a esperar a la IA).
+_CACHE_DIAGNOSTICO: dict[str, "DiagnosticoIA"] = {}
+
+
 def analizar_descripcion(descripcion: str) -> DiagnosticoIA:
+    """Wrapper con cache por texto. La lógica real está en _analizar()."""
+    clave = (descripcion or "").strip().lower()
+    if clave and clave in _CACHE_DIAGNOSTICO:
+        return _CACHE_DIAGNOSTICO[clave]
+    resultado = _analizar(descripcion)
+    if clave:
+        _CACHE_DIAGNOSTICO[clave] = resultado
+    return resultado
+
+
+def _analizar(descripcion: str) -> DiagnosticoIA:
     """
     Interpreta la descripción del cliente.
     Con IA disponible, la IA entiende el lenguaje natural y decide la validez.
@@ -212,6 +234,7 @@ def analizar_descripcion(descripcion: str) -> DiagnosticoIA:
 
                 return {
                     "etiqueta_ia":     etiqueta,
+                    "oficio_ia":       oficios.oficio_de_especialidad(etiqueta) or "PLOMERIA",
                     "urgencia_ia":     urgencia,
                     "diagnostico_ia":  diagnostico,
                     "presupuesto_min": float(data.get("presupuesto_min", pmin_def)),

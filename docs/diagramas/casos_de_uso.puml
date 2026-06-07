@@ -1,0 +1,48 @@
+@startuml CasosDeUso_PlomerIA
+left to right direction
+skinparam packageStyle rectangle
+title Casos de uso - PlomerIA
+
+actor "Cliente" as C
+actor "Profesional\n(Plomero)" as P
+actor "Sistema / IA" as S
+
+rectangle PlomerIA {
+  ' ----- Cliente -----
+  C -- (Registrarse / Iniciar sesion)
+  C -- (Describir problema)
+  C -- (Ver profesionales sugeridos)
+  C -- (Enviar solicitud)
+  C -- (Seguir estado de la solicitud)
+  C -- (Cancelar solicitud)
+  C -- (Chatear)
+  C -- (Calificar trabajo)
+  C -- (Recontactar profesional)
+
+  ' ----- Profesional -----
+  P -- (Registrarse por pasos)
+  P -- (Cambiar disponibilidad)
+  P -- (Aceptar / Rechazar solicitud)
+  P -- (Marcar en camino / finalizar)
+  P -- (Cargar boleta de materiales)
+  P -- (Ver agenda)
+  P -- (Ver historial / ganancias)
+  P -- (Calificar cliente)
+  P -- (Chatear)
+
+  ' ----- Sistema / IA (include) -----
+  (Describir problema)        ..> (Diagnosticar con IA) : <<include>>
+  (Ver profesionales sugeridos) ..> (Filtrar y recomendar) : <<include>>
+  (Enviar solicitud)          ..> (Notificar profesionales) : <<include>>
+  (Cancelar solicitud)        ..> (Aplicar penalizacion) : <<include>>
+  (Calificar trabajo)         ..> (Actualizar reputacion) : <<include>>
+  (Marcar en camino / finalizar) ..> (Cerrar por vencimiento 72hs) : <<extend>>
+
+  (Diagnosticar con IA) -- S
+  (Filtrar y recomendar) -- S
+  (Notificar profesionales) -- S
+  (Aplicar penalizacion) -- S
+  (Actualizar reputacion) -- S
+  (Cerrar por vencimiento 72hs) -- S
+}
+@enduml

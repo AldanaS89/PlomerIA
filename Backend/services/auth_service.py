@@ -25,6 +25,8 @@ def login(db: Session, email: str, password: str):
             "email":        user.email,
             "localidad":    user.localidad,   # ← necesario para el frontend
             "direccion":    user.direccion,
+            "latitud":      user.latitud,
+            "longitud":     user.longitud,
             "tipo":         "usuario"
         }
 
