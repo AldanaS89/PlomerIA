@@ -6,8 +6,9 @@ from typing import Optional
 
 from utils.seguridad import create_token, hash_password, verify_password
 from services.disponibilidad_service import guardar_agenda_inicial
-from repositories import plomero_repository
+from repositories import plomero_repository, calificacion_repository
 from schemas.plomero import PlomeroResponse
+import random as _random
 
 from utils.geolocalizacion import distancia_km, geocodificar
 from utils.email import enviar_reset_password
@@ -16,6 +17,83 @@ from models.plomero import Plomero
 import secrets
 
 RADIO_KM = 5.0
+
+# ─────────────────────────────
+# RESEÑAS (públicas) — reales + ficticias según puntuación
+# ─────────────────────────────
+_NOMBRES_RESENA = [
+    "Carlos M.", "Lucía P.", "Jorge R.", "Marta S.", "Diego F.",
+    "Ana V.", "Roberto G.", "Sofía L.", "Hernán T.", "Valeria C.",
+]
+_RESENAS_ALTA = [
+    "Excelente trabajo, muy prolijo y puntual.",
+    "Resolvió todo rápido y quedó impecable.",
+    "Súper recomendable, profesional y amable.",
+    "Llegó en horario y dejó todo limpio.",
+    "Un genio, solucionó la pérdida enseguida.",
+]
+_RESENAS_MEDIA = [
+    "Buen trabajo, cumplió con lo pactado.",
+    "Correcto, resolvió el problema.",
+    "Bien, aunque tardó un poco en llegar.",
+    "Cumplidor, lo recomiendo.",
+]
+_RESENAS_BAJA = [
+    "Resolvió el problema pero llegó tarde.",
+    "El trabajo quedó bien, la comunicación regular.",
+    "Cumplió, aunque esperaba un poco más de prolijidad.",
+]
+
+
+def _pool_resenas(puntuacion: float):
+    if puntuacion >= 4.5:
+        return _RESENAS_ALTA
+    if puntuacion >= 3.5:
+        return _RESENAS_MEDIA
+    return _RESENAS_BAJA
+
+
+def obtener_resenas(db: Session, id_plomero: int) -> dict:
+    """Reseñas públicas del plomero: reales (con comentario) + ficticias según su puntuación."""
+    p = plomero_repository.buscar_por_id(db, id_plomero)
+    if not p:
+        raise HTTPException(status_code=404, detail="Plomero no encontrado")
+
+    reales = []
+    for c in calificacion_repository.obtener_calificaciones_plomero(db, id_plomero):
+        if getattr(c, "comentario", None) and c.autor_rol == "cliente":
+            reales.append({
+                "autor": "Cliente",
+                "estrellas": c.estrellas,
+                "comentario": c.comentario,
+                "fecha": c.fecha_resenia.isoformat() if getattr(c, "fecha_resenia", None) else None,
+                "ficticia": False,
+            })
+
+    punt = p.puntuacion or 5.0
+    rnd = _random.Random(id_plomero)
+    pool = list(_pool_resenas(punt))
+    rnd.shuffle(pool)
+    faltan = max(0, 3 - len(reales))
+    ficticias = []
+    for i in range(faltan):
+        est = round(min(5.0, max(1.0, punt + rnd.choice([-0.5, 0, 0, 0.5]))), 1)
+        dias = rnd.randint(10, 220)
+        ficticias.append({
+            "autor": _NOMBRES_RESENA[(id_plomero + i) % len(_NOMBRES_RESENA)],
+            "estrellas": est,
+            "comentario": pool[i % len(pool)],
+            "fecha": (datetime.now() - timedelta(days=dias)).isoformat(),
+            "ficticia": True,
+        })
+
+    return {
+        "id_plomero": id_plomero,
+        "nombre": f"{p.nombre} {p.apellido}",
+        "puntuacion": punt,
+        "total_trabajos": p.total_trabajos or 0,
+        "resenas": (reales[:3] + ficticias)[:3],
+    }
 DIAS_ES = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"]
 FRANJAS = ["manana", "tarde", "noche"]
 # ------- Nueva busqueda
@@ -367,10 +445,18 @@ def sugerir(
             vistos.add(p.id_plomero)
             unicos.append(p)
 
-    # Ordenar: primero relevancia, después distancia, después puntuación
+    # Ordenar por TRAMOS de cercanía y, dentro de cada tramo, por puntuación.
+    # Tramos: <5km (0), 5–10km (1), >10km (2). Así primero entran los más
+    # cercanos y mejor puntuados, ampliando el radio solo si hace falta.
+    def tramo(p):
+        d = dist(p)
+        if d < 5:  return 0
+        if d < 10: return 1
+        return 2
+
     resultado = sorted(
         unicos,
-        key=lambda p: (-relevancia(p), dist(p), -p.puntuacion)
+        key=lambda p: (-relevancia(p), tramo(p), -p.puntuacion, dist(p))
     )[:5]
 
     # ─────────────────────────────────────────────────────────

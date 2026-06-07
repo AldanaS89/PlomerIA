@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import api from "../services/api";
 
 const fmt = (n) => "$" + Number(n || 0).toLocaleString("es-AR");
@@ -6,7 +6,7 @@ const fmt = (n) => "$" + Number(n || 0).toLocaleString("es-AR");
 /**
  * Boleta / presupuesto de un trabajo, con aspecto de comprobante.
  * El plomero carga renglones (concepto + monto), incluida la mano de obra,
- * y el total se suma solo. El cliente lo ve en modo lectura.
+ * y el total se suma solo. El cliente la ve siempre y se actualiza en vivo.
  *
  * props: idSolicitud, editable, diagnostico, fecha
  */
@@ -17,28 +17,33 @@ export default function BoletaMateriales({ idSolicitud, editable = false, diagno
   const [monto, setMonto] = useState("");
   const [guardando, setGuardando] = useState(false);
   const [abierto, setAbierto] = useState(false);
+  const montoRef = useRef(null);
 
   const cargar = useCallback(async () => {
     if (!idSolicitud) return;
     try {
       const res = await api.get(`/boleta/${idSolicitud}`);
-      setItems(Array.isArray(res.data?.items) ? res.data.items : []);
+      const nuevos = Array.isArray(res.data?.items) ? res.data.items : [];
+      // Sin re-render si no cambió (no interrumpe la escritura del plomero)
+      setItems(prev => JSON.stringify(prev) === JSON.stringify(nuevos) ? prev : nuevos);
       setTotal(res.data?.total || 0);
     } catch { /* noop */ }
   }, [idSolicitud]);
 
-  useEffect(() => { cargar(); }, [cargar]);
+  // Carga inicial + refresco en vivo (el cliente ve lo que el plomero va cargando)
+  useEffect(() => {
+    cargar();
+    const id = setInterval(cargar, 8000);
+    return () => clearInterval(id);
+  }, [cargar]);
 
   const agregar = async (desc, valor) => {
     const d = (desc ?? concepto).trim();
+    const v = parseFloat(valor ?? monto) || 0;
     if (!d) return;
     setGuardando(true);
     try {
-      const res = await api.post(`/boleta/${idSolicitud}`, {
-        descripcion: d,
-        cantidad: 1,
-        precio: parseFloat(valor ?? monto) || 0,
-      });
+      const res = await api.post(`/boleta/${idSolicitud}`, { descripcion: d, cantidad: 1, precio: v });
       setItems(res.data?.items || []);
       setTotal(res.data?.total || 0);
       setConcepto(""); setMonto("");
@@ -53,8 +58,11 @@ export default function BoletaMateriales({ idSolicitud, editable = false, diagno
     } catch { /* noop */ }
   };
 
-  // Cliente sin renglones cargados: no mostramos nada.
-  if (!editable && items.length === 0) return null;
+  // Precarga el concepto "Mano de obra" para que el plomero escriba el monto
+  const prepararManoDeObra = () => {
+    setConcepto("Mano de obra");
+    if (montoRef.current) montoRef.current.focus();
+  };
 
   const fechaTxt = fecha ? new Date(fecha).toLocaleDateString("es-AR") : new Date().toLocaleDateString("es-AR");
 
@@ -92,7 +100,9 @@ export default function BoletaMateriales({ idSolicitud, editable = false, diagno
           {items.length === 0 && (
             <div style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "12px",
               color: "#94A3B8", textAlign: "center", padding: "8px 0" }}>
-              {editable ? "Agregá materiales y la mano de obra." : "Sin renglones cargados."}
+              {editable
+                ? "Agregá materiales y la mano de obra."
+                : "El profesional todavía no cargó la boleta."}
             </div>
           )}
 
@@ -114,11 +124,13 @@ export default function BoletaMateriales({ idSolicitud, editable = false, diagno
           ))}
 
           {/* Total */}
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center",
-            marginTop: "10px", paddingTop: "8px", borderTop: "2px solid #0F172A" }}>
-            <span style={{ fontFamily: "'DM Sans',sans-serif", fontWeight: "800", fontSize: "14px", color: "#0F172A" }}>TOTAL</span>
-            <span style={{ fontFamily: "'Courier New',monospace", fontWeight: "800", fontSize: "16px", color: "#16A34A" }}>{fmt(total)}</span>
-          </div>
+          {items.length > 0 && (
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center",
+              marginTop: "10px", paddingTop: "8px", borderTop: "2px solid #0F172A" }}>
+              <span style={{ fontFamily: "'DM Sans',sans-serif", fontWeight: "800", fontSize: "14px", color: "#0F172A" }}>TOTAL</span>
+              <span style={{ fontFamily: "'Courier New',monospace", fontWeight: "800", fontSize: "16px", color: "#16A34A" }}>{fmt(total)}</span>
+            </div>
+          )}
 
           {/* Alta de renglón (solo plomero) */}
           {editable && (
@@ -128,7 +140,7 @@ export default function BoletaMateriales({ idSolicitud, editable = false, diagno
                   placeholder="Concepto (material / mano de obra)"
                   style={{ flex: "1 1 140px", minWidth: 0, border: "1.5px solid #E2E8F0", borderRadius: "8px",
                     padding: "8px 10px", fontSize: "13px", fontFamily: "'DM Sans',sans-serif", outline: "none", background: "#fff" }} />
-                <input value={monto} onChange={e => setMonto(e.target.value)} placeholder="Monto" type="number" min="0"
+                <input ref={montoRef} value={monto} onChange={e => setMonto(e.target.value)} placeholder="Monto" type="number" min="0"
                   style={{ width: "92px", border: "1.5px solid #E2E8F0", borderRadius: "8px",
                     padding: "8px", fontSize: "13px", fontFamily: "'DM Sans',sans-serif", outline: "none", background: "#fff" }} />
                 <button onClick={() => agregar()} disabled={guardando || !concepto.trim()} style={{
@@ -137,11 +149,11 @@ export default function BoletaMateriales({ idSolicitud, editable = false, diagno
                   padding: "8px 14px", fontFamily: "'DM Sans',sans-serif", fontWeight: "700",
                   fontSize: "13px", cursor: concepto.trim() ? "pointer" : "not-allowed" }}>Agregar</button>
               </div>
-              <button onClick={() => agregar("Mano de obra", monto)} disabled={guardando}
+              <button onClick={prepararManoDeObra} disabled={guardando}
                 style={{ marginTop: "8px", background: "transparent", border: "1px dashed #CBD5E1",
                   borderRadius: "8px", padding: "6px 12px", fontFamily: "'DM Sans',sans-serif",
                   fontSize: "12px", color: "#475569", cursor: "pointer" }}>
-                + Agregar "Mano de obra" {monto ? `(${fmt(monto)})` : ""}
+                + Mano de obra (escribí el monto y tocá Agregar)
               </button>
             </div>
           )}

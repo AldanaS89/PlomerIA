@@ -156,6 +156,12 @@ def cambiar_disponibilidad(
     return plomero_service.cambiar_disponibilidad(db, id_plomero, disponible)
 
 
+# ── RESEÑAS PÚBLICAS ──────────────────────────────────────────────────────────
+@router.get("/{id}/resenas")
+def resenas(id: int, db: Session = Depends(get_db)):
+    return plomero_service.obtener_resenas(db, id)
+
+
 # ── PERFIL POR ID ─────────────────────────────────────────────────────────────
 @router.get("/{id}", response_model=PlomeroResponse)
 def obtener(id: int, db: Session = Depends(get_db)):

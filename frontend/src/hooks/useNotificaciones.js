@@ -47,7 +47,9 @@ export function useNotificaciones(token) {
     try {
       const res = await api.get("/notificaciones/");
       const arr = Array.isArray(res.data) ? res.data : [];
-      setNotifs(arr.map(mapNotif));
+      const mapped = arr.map(mapNotif);
+      // No re-renderizar si no cambió (evita interrumpir la escritura)
+      setNotifs(prev => JSON.stringify(prev) === JSON.stringify(mapped) ? prev : mapped);
     } catch {
       // silencioso — no mostramos error de polling
     }
