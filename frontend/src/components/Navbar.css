@@ -1,0 +1,104 @@
+/* src/components/Navbar.css */
+.nav {
+  background: var(--navy);
+  color: #fff;
+  padding: 0 28px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 60px;
+  position: sticky;
+  top: 0;
+  z-index: 100;
+}
+.nav-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.nav-logo {
+  width: 34px;
+  height: 34px;
+  background: var(--blue);
+  border-radius: 9px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  flex-shrink: 0;
+}
+.nav-brand-name {
+  font-size: 1.1rem;
+  font-weight: 700;
+  letter-spacing: -.3px;
+}
+.nav-brand-sub {
+  font-size: .72rem;
+  color: rgba(255,255,255,.45);
+  font-weight: 400;
+}
+.nav-tabs {
+  display: flex;
+  gap: 4px;
+}
+.nav-tab {
+  color: rgba(255,255,255,.6);
+  padding: 8px 14px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: .88rem;
+  font-weight: 500;
+  border: none;
+  background: none;
+  transition: .15s;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+.nav-tab:hover  { color: #fff; background: rgba(255,255,255,.08); }
+.nav-tab.active { color: #fff; background: rgba(255,255,255,.13); }
+.nav-badge {
+  background: var(--blue);
+  color: #fff;
+  border-radius: 20px;
+  font-size: .68rem;
+  padding: 1px 6px;
+  font-weight: 700;
+}
+.nav-right {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  font-size: .88rem;
+}
+.btn-nav {
+  background: rgba(255,255,255,.12);
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  padding: 7px 14px;
+  font-size: .83rem;
+  font-weight: 500;
+  transition: .15s;
+}
+.btn-nav:hover { background: rgba(255,255,255,.2); }
+
+/* toggle de disponibilidad */
+.toggle-row   { display: flex; align-items: center; gap: 7px; }
+.toggle-label { color: rgba(255,255,255,.65); font-size: .83rem; }
+.toggle-wrap  { position: relative; width: 40px; height: 22px; }
+.toggle-wrap input { opacity: 0; width: 0; height: 0; position: absolute; }
+.toggle-track {
+  position: absolute; inset: 0;
+  background: rgba(255,255,255,.25);
+  border-radius: 11px; transition: .2s;
+}
+.toggle-wrap input:checked + .toggle-track { background: #22c55e; }
+.toggle-thumb {
+  position: absolute; top: 3px; left: 3px;
+  width: 16px; height: 16px;
+  background: #fff; border-radius: 50%;
+  transition: .2s; pointer-events: none;
+}
+.toggle-wrap input:checked ~ .toggle-thumb { transform: translateX(18px); }
+.disp-status { font-size: .83rem; font-weight: 600; }

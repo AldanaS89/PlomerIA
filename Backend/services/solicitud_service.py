@@ -87,6 +87,11 @@ def _resetear_cancelaciones_plomero(db: Session, id_plomero: int):
 # RESPONSE
 # ─────────────────────────────────────────────
 def _to_response(s):
+    print(
+    f"SOLICITUD {s.id_solicitud} | "
+    f"ESTADO={s.estado} | "
+    f"PLOMERO={s.id_plomero}"
+)
 
     estado = (
         s.estado.value
@@ -132,7 +137,7 @@ def _to_response(s):
         "foto_plomero": None,
         "localidad_plomero": None,
         "turno_solicitado": s.turno_solicitado,
-        "invitaciones": [],
+        "invitaciones": [],  
     }
 
     if s.usuario:
@@ -634,12 +639,12 @@ def rechazar(
     ][:5]
 
     if not nuevos:
-
         solicitud_repository.cambiar_estado(
             db,
             id_solicitud,
             EstadoSolicitud.SIN_RESPUESTA
         )
+        print("PASO A SIN_RESPUESTA")
 
         return {
             "mensaje": "No hay más plomeros disponibles"
@@ -665,6 +670,8 @@ def rechazar(
             "presupuesto_max": solicitud.presupuesto_max,
         },
     )
+    print("NUEVOS:", len(nuevos))
+    print("ESTADO ACTUAL:", solicitud.estado)
 
     return {
         "mensaje": f"Se enviaron {len(nuevos)} nuevas invitaciones"

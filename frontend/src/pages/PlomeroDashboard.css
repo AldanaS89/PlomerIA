@@ -1,0 +1,39 @@
+/* src/pages/PlomeroDashboard.css */
+.page-body {
+  max-width: 700px;
+  margin: 0 auto;
+  padding: 36px 20px 80px;
+}
+.hero-title {
+  font-weight: 700;
+  letter-spacing: -.4px;
+  margin-bottom: 6px;
+}
+.hero-sub {
+  color: var(--gray-600);
+  margin-bottom: 24px;
+  font-size: .9rem;
+}
+.solicitudes-grid { display: flex; flex-direction: column; gap: 14px; }
+
+/* skeleton */
+.loading-grid { display: flex; flex-direction: column; gap: 14px; }
+.skeleton-card {
+  background: var(--gray-100);
+  border-radius: 14px;
+  height: 220px;
+  animation: pulse 1.4s ease-in-out infinite;
+}
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: .5; }
+}
+
+/* empty */
+.empty-state {
+  text-align: center;
+  padding: 80px 20px;
+  color: var(--gray-400);
+}
+.empty-state span { font-size: 3rem; display: block; margin-bottom: 14px; }
+.empty-state p { font-size: 1rem; }
