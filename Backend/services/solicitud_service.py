@@ -10,7 +10,7 @@ from repositories import solicitud_plomero_repository
 from services.notificacion_service import notificacion_service
 from services import notificaciones_inapp
 from services import ia_service
-from models.solicitud import EstadoSolicitud
+from models.solicitud import EstadoSolicitud, Solicitud
 from models.bloqueHorario import BloqueHorario
 from schemas.solicitud import SolicitudCreate, SolicitudResponse
 
@@ -133,6 +133,19 @@ def _to_response(s):
         "foto_plomero": None,
         "localidad_plomero": None,
         "turno_solicitado": s.turno_solicitado,
+        "intentos_reasignacion": s.intentos_reasignacion or 0,
+        "intentos_restantes": max(0, MAX_RONDAS_BUSQUEDA - (s.intentos_reasignacion or 0)),
+        # Cerrada automáticamente porque nadie aceptó tras agotar los reintentos.
+        "cerrada_sin_respuesta": (
+            estado == "cancelada"
+            and s.id_plomero is None
+            and (s.intentos_reasignacion or 0) >= MAX_RONDAS_BUSQUEDA
+        ),
+        "fecha_ultimo_envio": (
+            s.fecha_ultimo_envio.isoformat()
+            if s.fecha_ultimo_envio
+            else None
+        ),
         "invitaciones": [],
     }
 
@@ -588,88 +601,292 @@ def rechazar(
             "mensaje": "Invitación rechazada"
         }
 
-    # ya nadie puede aceptar
-    if solicitud.intentos_reasignacion >= MAX_RONDAS_BUSQUEDA:
+    # Ya nadie puede aceptar.
+    #  - Si todavía quedan reintentos → SIN_RESPUESTA: el cliente vuelve a buscar
+    #    (excluyendo a los que rechazaron) o cancela.
+    #  - Si ya se agotaron los 3 reintentos → la CERRAMOS automáticamente
+    #    (sin penalización; no depende de que el cliente toque nada).
+    intentos = solicitud.intentos_reasignacion or 0
 
+    if intentos >= MAX_RONDAS_BUSQUEDA:
         solicitud_repository.cambiar_estado(
-            db,
-            id_solicitud,
-            EstadoSolicitud.SIN_RESPUESTA
+            db, id_solicitud, EstadoSolicitud.CANCELADA
         )
-
-        return {
-            "mensaje": "No hay más plomeros disponibles"
-        }
-
-    # todos los plomeros que ya participaron
-    invitaciones = (
-        solicitud_plomero_repository
-        .obtener_invitaciones_por_solicitud(
+        notificaciones_inapp.notificar_cliente(
             db,
-            id_solicitud
-        )
-    )
-
-    ids_excluidos = {
-        inv.id_plomero
-        for inv in invitaciones
-    }
-
-    candidatos = (
-        plomero_repository.buscar_para_solicitud(
-            db,
-            especialidades=solicitud.etiqueta_ia,
-            lat_usuario=solicitud.latitud_evento,
-            lon_usuario=solicitud.longitud_evento,
-            atiende_urgencias=(
-                solicitud.urgencia_ia == "URGENTE"
+            id_usuario=solicitud.id_usuario,
+            tipo="sin_respuesta",
+            titulo="No encontramos un profesional",
+            mensaje=(
+                "Disculpá las molestias: probamos con varios profesionales y "
+                "ninguno pudo tomar tu pedido. Cerramos esta solicitud; "
+                "podés volver a intentarlo más tarde."
             ),
-            limite=50,
+            id_solicitud=id_solicitud,
         )
-    )
-
-    nuevos = [
-        p
-        for p in candidatos
-        if p.id_plomero not in ids_excluidos
-    ][:5]
-
-    if not nuevos:
-
-        solicitud_repository.cambiar_estado(
-            db,
-            id_solicitud,
-            EstadoSolicitud.SIN_RESPUESTA
-        )
-
         return {
-            "mensaje": "No hay más plomeros disponibles"
+            "mensaje": "Se agotaron los reintentos. Solicitud cerrada automáticamente."
         }
 
-    solicitud_plomero_repository.crear_invitaciones_bulk(
-        db,
-        id_solicitud,
-        [p.id_plomero for p in nuevos]
+    solicitud_repository.cambiar_estado(
+        db, id_solicitud, EstadoSolicitud.SIN_RESPUESTA
     )
-
-    solicitud.intentos_reasignacion += 1
-    db.commit()
-
-    notificacion_service.notificar_plomeros(
-        plomeros=nuevos,
-        solicitud_id=id_solicitud,
-        descripcion=solicitud.descripcion_raw,
-        diagnostico={
-            "etiqueta_ia": solicitud.etiqueta_ia,
-            "urgencia_ia": solicitud.urgencia_ia,
-            "presupuesto_min": solicitud.presupuesto_min,
-            "presupuesto_max": solicitud.presupuesto_max,
-        },
+    quedan = MAX_RONDAS_BUSQUEDA - intentos
+    notificaciones_inapp.notificar_cliente(
+        db,
+        id_usuario=solicitud.id_usuario,
+        tipo="sin_respuesta",
+        titulo="Tu pedido no fue tomado",
+        mensaje=(
+            "Los profesionales que elegiste no pudieron tomar tu pedido. "
+            f"Volvé a buscar otros (te queda{'n' if quedan != 1 else ''} {quedan} "
+            f"intento{'s' if quedan != 1 else ''}) o cancelá la solicitud."
+        ),
+        id_solicitud=id_solicitud,
     )
 
     return {
-        "mensaje": f"Se enviaron {len(nuevos)} nuevas invitaciones"
+        "mensaje": "Todos rechazaron. El cliente puede volver a buscar o cancelar."
     }
+
+
+# ─────────────────────────────────────────────
+# REINTENTAR — el cliente vuelve a buscar en la MISMA solicitud
+# ─────────────────────────────────────────────
+def reintentar(
+    db: Session,
+    id_solicitud: int,
+    id_usuario: int,
+    ids_plomeros: list[int],
+    turnos_por_plomero: dict | None = None,
+):
+    solicitud = solicitud_repository.obtener_por_id(db, id_solicitud)
+    if not solicitud:
+        raise HTTPException(status_code=404, detail="Solicitud no encontrada")
+    if solicitud.id_usuario != id_usuario:
+        raise HTTPException(status_code=403, detail="No autorizado")
+    if solicitud.estado not in (
+        EstadoSolicitud.SIN_RESPUESTA,
+        EstadoSolicitud.PENDIENTE,
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail="Solo se puede volver a buscar en una solicitud abierta sin respuesta",
+        )
+    if (solicitud.intentos_reasignacion or 0) >= MAX_RONDAS_BUSQUEDA:
+        raise HTTPException(
+            status_code=400,
+            detail="Se agotaron los reintentos. Cancelá la solicitud para cerrarla.",
+        )
+
+    # Excluir a quienes ya fueron contactados en ESTA solicitud (rechazaron o no respondieron)
+    ya_contactados = solicitud_plomero_repository.obtener_contactados(db, id_solicitud)
+    nuevos_ids = [pid for pid in (ids_plomeros or []) if pid not in ya_contactados]
+    if not nuevos_ids:
+        raise HTTPException(
+            status_code=400,
+            detail="Elegí profesionales nuevos: los anteriores ya fueron contactados.",
+        )
+
+    # Turno (mismo criterio que crear: se toma el del primer seleccionado)
+    turnos = turnos_por_plomero or {}
+    turno_elegido = turnos.get(str(nuevos_ids[0]))
+    if turno_elegido:
+        solicitud.turno_solicitado = turno_elegido
+        solicitud.fecha_trabajo = _calcular_fecha_trabajo(turno_elegido)
+
+    solicitud_plomero_repository.crear_invitaciones_bulk(db, id_solicitud, nuevos_ids)
+
+    solicitud.intentos_reasignacion = (solicitud.intentos_reasignacion or 0) + 1
+    solicitud.fecha_ultimo_envio = datetime.now()
+    solicitud_repository.cambiar_estado(db, id_solicitud, EstadoSolicitud.PENDIENTE)
+    db.commit()
+    db.refresh(solicitud)
+
+    plomeros = [
+        p for p in (plomero_repository.buscar_por_id(db, pid) for pid in nuevos_ids) if p
+    ]
+    diagnostico = {
+        "etiqueta_ia": solicitud.etiqueta_ia,
+        "urgencia_ia": solicitud.urgencia_ia,
+        "presupuesto_min": solicitud.presupuesto_min,
+        "presupuesto_max": solicitud.presupuesto_max,
+    }
+    try:
+        notificacion_service.notificar_plomeros(
+            plomeros=plomeros,
+            solicitud_id=solicitud.id_solicitud,
+            descripcion=solicitud.descripcion_raw,
+            diagnostico=diagnostico,
+        )
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"No se pudo notificar (email) en reintentar: {e}")
+
+    es_urgente = (solicitud.urgencia_ia == "URGENTE")
+    for p in plomeros:
+        notificaciones_inapp.notificar_plomero(
+            db,
+            id_plomero=p.id_plomero,
+            tipo="urgencia" if es_urgente else "nueva_solicitud",
+            titulo="Nueva urgencia 🚨" if es_urgente else "Nueva solicitud",
+            mensaje=(
+                f"{'URGENTE — ' if es_urgente else ''}"
+                f"{(solicitud.etiqueta_ia or 'Trabajo de plomería')}. "
+                f"Tenés {'30 minutos' if es_urgente else '3 horas'} para responder."
+            ),
+            id_solicitud=solicitud.id_solicitud,
+        )
+
+    return _to_response(
+        solicitud_repository.obtener_por_id(db, solicitud.id_solicitud)
+    )
+
+
+# ─────────────────────────────────────────────
+# BORRADOR — el cliente pidió diagnóstico pero todavía no envió a nadie
+# ─────────────────────────────────────────────
+BORRADOR_VENCE_HORAS = 48
+
+
+def crear_o_actualizar_borrador(db: Session, descripcion: str, id_usuario: int):
+    """
+    El cliente pidió un diagnóstico. Guardamos (o actualizamos) UN borrador por
+    usuario con el diagnóstico, para que la búsqueda no se pierda al navegar.
+    Queda abierto hasta que lo envía, lo cancela o vence a las 48hs.
+    """
+    diagnostico = ia_service.analizar_descripcion(descripcion)
+    if not diagnostico.get("valido", True):
+        return {"diagnostico": diagnostico, "borrador": None}
+
+    usuario = usuario_repository.buscar_por_id(db, id_usuario)
+    if usuario and getattr(usuario, "suspendido", False):
+        raise HTTPException(status_code=403, detail="Cuenta suspendida")
+
+    # Reutilizamos el borrador abierto del usuario si ya existe (uno por vez).
+    existente = next(
+        (
+            s for s in solicitud_repository.listar_por_usuario(db, id_usuario)
+            if s.estado == EstadoSolicitud.BORRADOR
+        ),
+        None,
+    )
+
+    if existente:
+        solicitud = existente
+        solicitud.descripcion_raw = descripcion
+        solicitud.fecha = datetime.now()   # reinicia el reloj de 48hs
+    else:
+        solicitud = Solicitud(
+            id_usuario       = id_usuario,
+            descripcion_raw  = descripcion,
+            localidad_evento = (getattr(usuario, "localidad", None) or "Sin especificar"),
+            latitud_evento   = getattr(usuario, "latitud", None),
+            longitud_evento  = getattr(usuario, "longitud", None),
+            estado           = EstadoSolicitud.BORRADOR,
+        )
+        db.add(solicitud)
+
+    solicitud.etiqueta_ia     = diagnostico.get("etiqueta_ia")
+    solicitud.urgencia_ia     = diagnostico.get("urgencia_ia")
+    solicitud.diagnostico_ia  = diagnostico.get("diagnostico_ia")
+    solicitud.presupuesto_min = diagnostico.get("presupuesto_min")
+    solicitud.presupuesto_max = diagnostico.get("presupuesto_max")
+    db.commit()
+    db.refresh(solicitud)
+
+    return {
+        "diagnostico": diagnostico,
+        "borrador": _to_response(solicitud),
+    }
+
+
+def confirmar_borrador(
+    db: Session,
+    id_solicitud: int,
+    id_usuario: int,
+    ids_plomeros: list[int],
+    turnos_por_plomero: dict | None = None,
+):
+    """El cliente envía el borrador a los plomeros elegidos: BORRADOR → PENDIENTE."""
+    solicitud = solicitud_repository.obtener_por_id(db, id_solicitud)
+    if not solicitud:
+        raise HTTPException(status_code=404, detail="Solicitud no encontrada")
+    if solicitud.id_usuario != id_usuario:
+        raise HTTPException(status_code=403, detail="No autorizado")
+    if solicitud.estado != EstadoSolicitud.BORRADOR:
+        raise HTTPException(status_code=400, detail="La solicitud ya fue enviada")
+    if not ids_plomeros:
+        raise HTTPException(status_code=400, detail="Elegí al menos un profesional")
+
+    turnos = turnos_por_plomero or {}
+    turno_elegido = turnos.get(str(ids_plomeros[0]))
+    if turno_elegido:
+        solicitud.turno_solicitado = turno_elegido
+        solicitud.fecha_trabajo = _calcular_fecha_trabajo(turno_elegido)
+
+    solicitud_plomero_repository.crear_invitaciones_bulk(db, id_solicitud, ids_plomeros)
+    solicitud.fecha_ultimo_envio = datetime.now()
+    solicitud_repository.cambiar_estado(db, id_solicitud, EstadoSolicitud.PENDIENTE)
+    db.commit()
+    db.refresh(solicitud)
+
+    plomeros = [
+        p for p in (plomero_repository.buscar_por_id(db, pid) for pid in ids_plomeros) if p
+    ]
+    diagnostico = {
+        "etiqueta_ia": solicitud.etiqueta_ia,
+        "urgencia_ia": solicitud.urgencia_ia,
+        "presupuesto_min": solicitud.presupuesto_min,
+        "presupuesto_max": solicitud.presupuesto_max,
+    }
+    try:
+        notificacion_service.notificar_plomeros(
+            plomeros=plomeros,
+            solicitud_id=solicitud.id_solicitud,
+            descripcion=solicitud.descripcion_raw,
+            diagnostico=diagnostico,
+        )
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"No se pudo notificar (email) al confirmar borrador: {e}")
+
+    es_urgente = (solicitud.urgencia_ia == "URGENTE")
+    for p in plomeros:
+        notificaciones_inapp.notificar_plomero(
+            db,
+            id_plomero=p.id_plomero,
+            tipo="urgencia" if es_urgente else "nueva_solicitud",
+            titulo="Nueva urgencia 🚨" if es_urgente else "Nueva solicitud",
+            mensaje=(
+                f"{'URGENTE — ' if es_urgente else ''}"
+                f"{(solicitud.etiqueta_ia or 'Trabajo de plomería')}. "
+                f"Tenés {'30 minutos' if es_urgente else '3 horas'} para responder."
+            ),
+            id_solicitud=solicitud.id_solicitud,
+        )
+
+    return _to_response(solicitud_repository.obtener_por_id(db, solicitud.id_solicitud))
+
+
+def _cerrar_borradores_vencidos(db: Session, id_usuario: int):
+    """Limpieza perezosa: cierra borradores con +48hs sin enviarse."""
+    limite = datetime.now() - timedelta(hours=BORRADOR_VENCE_HORAS)
+    for s in solicitud_repository.listar_por_usuario(db, id_usuario):
+        if s.estado == EstadoSolicitud.BORRADOR and s.fecha and s.fecha < limite:
+            solicitud_repository.cambiar_estado(db, s.id_solicitud, EstadoSolicitud.CANCELADA)
+            notificaciones_inapp.notificar_cliente(
+                db,
+                id_usuario=id_usuario,
+                tipo="borrador_vencido",
+                titulo="Cerramos tu pedido en preparación",
+                mensaje=(
+                    "Pasaron 48hs desde que pediste el diagnóstico sin enviar la "
+                    "solicitud a ningún profesional, así que la cerramos. "
+                    "Podés empezar una nueva cuando quieras."
+                ),
+                id_solicitud=s.id_solicitud,
+            )
+
+
 # ─────────────────────────────────────────────
 # EN CAMINO
 # ─────────────────────────────────────────────
@@ -844,10 +1061,12 @@ def cancelar(db: Session, id_solicitud: int, id_usuario: int):
         raise HTTPException(status_code=403, detail="Sin acceso")
 
     estados_cancelables = (
+        EstadoSolicitud.BORRADOR,        # pedido en preparación → cerrar sin penalización
         EstadoSolicitud.PENDIENTE,
         EstadoSolicitud.EN_PROGRESO,
         EstadoSolicitud.EN_CAMINO,
         EstadoSolicitud.REASIGNACION_PENDIENTE,
+        EstadoSolicitud.SIN_RESPUESTA,   # todos rechazaron → cerrar sin penalización
     )
     if solicitud.estado not in estados_cancelables:
         raise HTTPException(
@@ -1000,6 +1219,7 @@ def _con_flags_calificacion(db, s, r):
 
 
 def listar_por_usuario(db: Session, id_usuario: int):
+    _cerrar_borradores_vencidos(db, id_usuario)   # cierra borradores +48hs sin enviar
     return [
         _con_flags_calificacion(db, s, _to_response(s))
         for s in solicitud_repository.listar_por_usuario(db, id_usuario)

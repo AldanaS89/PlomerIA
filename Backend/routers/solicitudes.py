@@ -17,6 +17,20 @@ class ReprogramarBody(BaseModel):
     fecha_trabajo: datetime
 
 
+class ReintentarBody(BaseModel):
+    ids_plomeros_seleccionados: list[int] = []
+    turnos_por_plomero: dict[str, str] = {}
+
+
+class BorradorBody(BaseModel):
+    descripcion: str
+
+
+class ConfirmarBody(BaseModel):
+    ids_plomeros_seleccionados: list[int] = []
+    turnos_por_plomero: dict[str, str] = {}
+
+
 # ── CREAR ─────────────────────────────────────────────────────────────────────
 @router.post("/")
 async def crear_solicitud(
@@ -52,6 +66,47 @@ def cancelar_solicitud(
     id_usuario: int = Depends(get_usuario_actual),
 ):
     return solicitud_service.cancelar(db, id_solicitud, id_usuario)
+
+@router.post("/borrador")
+def crear_borrador(
+    body: BorradorBody,
+    db: Session = Depends(get_db),
+    id_usuario: int = Depends(get_usuario_actual),
+):
+    return solicitud_service.crear_o_actualizar_borrador(db, body.descripcion, id_usuario)
+
+
+@router.post("/{id_solicitud}/confirmar")
+def confirmar(
+    id_solicitud: int,
+    body: ConfirmarBody,
+    db: Session = Depends(get_db),
+    id_usuario: int = Depends(get_usuario_actual),
+):
+    return solicitud_service.confirmar_borrador(
+        db,
+        id_solicitud,
+        id_usuario,
+        body.ids_plomeros_seleccionados,
+        body.turnos_por_plomero,
+    )
+
+
+@router.post("/{id_solicitud}/reintentar")
+def reintentar(
+    id_solicitud: int,
+    body: ReintentarBody,
+    db: Session = Depends(get_db),
+    id_usuario: int = Depends(get_usuario_actual),
+):
+    return solicitud_service.reintentar(
+        db,
+        id_solicitud,
+        id_usuario,
+        body.ids_plomeros_seleccionados,
+        body.turnos_por_plomero,
+    )
+
 
 @router.patch("/{id_solicitud}/aceptar")
 def aceptar(

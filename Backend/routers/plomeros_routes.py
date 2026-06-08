@@ -116,6 +116,7 @@ def sugerir(datos: dict, db: Session = Depends(get_db)):
     urgencia_forzada = datos.get("urgencia_forzada", False)
     lat              = datos.get("latitud")
     lon              = datos.get("longitud")
+    excluidos        = datos.get("excluidos") or []   # ids a NO recomendar (ya rechazaron)
 
     diagnostico = ia_service.analizar_descripcion(descripcion)
 
@@ -138,6 +139,7 @@ def sugerir(datos: dict, db: Session = Depends(get_db)):
         lat_usuario      = lat,
         lon_usuario      = lon,
         urgencia_forzada = urgencia_forzada,
+        excluidos        = excluidos,
     )
 
     return {

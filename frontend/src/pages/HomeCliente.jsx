@@ -554,7 +554,7 @@ function TurnoSelector({ plomero, turnoActual, onSelect }) {
 
 // ─── SCREEN: RESULTADOS ───────────────────────────────────────────────────────
 
-function ScreenResultados({ problema, urgencia, idsExcluidos = [], onEnviar }) {
+function ScreenResultados({ problema, urgencia, idsExcluidos = [], reintentarId = null, borradorId = null, onEnviar }) {
   const [plomeros, setPlomeros]   = useState([]);
   const [loading, setLoading]     = useState(true);
   const [error, setError]         = useState("");
@@ -579,21 +579,22 @@ function ScreenResultados({ problema, urgencia, idsExcluidos = [], onEnviar }) {
         urgencia_forzada: urgencia, // le decimos al backend que el cliente detectó urgencia
         latitud:          lat ?? -34.85,
         longitud:         lon ?? -58.38,
+        // Los excluidos (rechazados/contactados) los filtra el BACKEND antes de
+        // recortar a 5, así siempre completa los 5 con el resto del pool.
+        excluidos:        idsExcluidos,
       });
       const todos = Array.isArray(res.data?.plomeros)
         ? res.data.plomeros
         : Array.isArray(res.data)
           ? res.data
           : [];
-      // Excluir plomeros que ya no respondieron en solicitudes anteriores
-      const excluidos = new Set(idsExcluidos);
-      setPlomeros(excluidos.size > 0 ? todos.filter(p => !excluidos.has(p.id_plomero)) : todos);
+      setPlomeros(todos);
     } catch (e) {
       setError(e.response?.data?.detail || e.message);
     } finally {
       setLoading(false);
     }
-  }, [problema, urgencia]);
+  }, [problema, urgencia, idsExcluidos]);
 
   // Al montar: definir la ubicación base y hacer la búsqueda inicial.
   // Para un servicio a domicilio, la base correcta es la DIRECCIÓN REGISTRADA
@@ -664,19 +665,36 @@ function ScreenResultados({ problema, urgencia, idsExcluidos = [], onEnviar }) {
   const handleEnviar = async () => {
     setEnviando(true);
     try {
-      const resp = await api.post("/solicitudes/", {
-        descripcion_raw:           problema,
-        solo_mujeres:              filtroGenero === "F",
-        localidad_evento: useAuthStore.getState().user?.localidad || "Sin especificar",
-        latitud_evento:            coords?.lat ?? -34.85,
-        longitud_evento:           coords?.lon ?? -58.38,
-        ids_plomeros_seleccionados: seleccionados,
-        turnos_por_plomero: (() => {
-          const t = {};
-          seleccionados.forEach(id => { if (turnos[id]) t[String(id)] = turnos[id]; });
-          return t;
-        })(),
-      });
+      const turnosPayload = (() => {
+        const t = {};
+        seleccionados.forEach(id => { if (turnos[id]) t[String(id)] = turnos[id]; });
+        return t;
+      })();
+      // 1) Reintento sobre la misma solicitud (excluye a los que rechazaron).
+      // 2) Confirmar un borrador existente (lo más común): BORRADOR → PENDIENTE.
+      // 3) Fallback: crear una solicitud nueva (si por algo no hubo borrador).
+      let resp;
+      if (reintentarId) {
+        resp = await api.post(`/solicitudes/${reintentarId}/reintentar`, {
+          ids_plomeros_seleccionados: seleccionados,
+          turnos_por_plomero: turnosPayload,
+        });
+      } else if (borradorId) {
+        resp = await api.post(`/solicitudes/${borradorId}/confirmar`, {
+          ids_plomeros_seleccionados: seleccionados,
+          turnos_por_plomero: turnosPayload,
+        });
+      } else {
+        resp = await api.post("/solicitudes/", {
+          descripcion_raw:           problema,
+          solo_mujeres:              filtroGenero === "F",
+          localidad_evento: useAuthStore.getState().user?.localidad || "Sin especificar",
+          latitud_evento:            coords?.lat ?? -34.85,
+          longitud_evento:           coords?.lon ?? -58.38,
+          ids_plomeros_seleccionados: seleccionados,
+          turnos_por_plomero: turnosPayload,
+        });
+      }
       setSolicitud(resp.data);
       setEnviado(true);
       setTimeout(() => onEnviar(resp.data), 1800);
@@ -782,12 +800,17 @@ function ScreenResultados({ problema, urgencia, idsExcluidos = [], onEnviar }) {
             <Spinner size={36} />
           </div>
         : plomeros.length === 0
-          ? <div style={{ textAlign: "center", padding: "60px 20px",
+          ? <div style={{ textAlign: "center", padding: "56px 24px",
               border: "2px dashed #E2E8F0", borderRadius: "16px" }}>
-              <div style={{ fontSize: "36px", marginBottom: "12px" }}>🔍</div>
-              <div style={{ fontFamily: "'DM Sans',sans-serif", fontWeight: "700",
-                fontSize: "15px", color: "#94A3B8" }}>
-                No se encontraron profesionales
+              <div style={{ fontSize: "40px", marginBottom: "12px" }}>🙏</div>
+              <div style={{ fontFamily: "'DM Sans',sans-serif", fontWeight: "800",
+                fontSize: "16px", color: "#475569", marginBottom: "6px" }}>
+                Disculpá las molestias
+              </div>
+              <div style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "14px",
+                color: "#94A3B8", maxWidth: "360px", margin: "0 auto" }}>
+                No encontramos un profesional disponible en este momento. Por favor,
+                volvé a intentarlo más tarde.
               </div>
             </div>
           : <div style={{ display: "grid",
@@ -1158,12 +1181,133 @@ function ScreenEstado({ solicitud, onNav }) {
 
 // ─── SCREEN: MI SOLICITUD ────────────────────────────────────────────────────
 
+// Registro local de solicitudes cerradas-sin-respuesta que el cliente ya
+// "vio" (tocó Volver al inicio). Persiste entre pestañas y recargas para no
+// volver a mostrar el cartel de disculpas una vez reconocido.
+const CERRADAS_VISTAS_KEY = "plomeria:cerradas_vistas";
+
+function leerCerradasVistas() {
+  try { return new Set(JSON.parse(localStorage.getItem(CERRADAS_VISTAS_KEY) || "[]")); }
+  catch { return new Set(); }
+}
+
+function marcarCerradaVista(id) {
+  try {
+    const s = leerCerradasVistas();
+    s.add(id);
+    localStorage.setItem(CERRADAS_VISTAS_KEY, JSON.stringify([...s]));
+  } catch { /* noop */ }
+}
+
+// Tarjeta para una solicitud que se CERRÓ sola porque nadie la aceptó tras
+// agotar los reintentos. Muestra disculpas + botón para volver al inicio.
+function CerradaSinRespuestaCard({ h, onVolver }) {
+  return (
+    <div style={{ background: "#fff", borderRadius: "20px",
+      border: "1px solid #EEF2F7", padding: "40px 32px",
+      boxShadow: "0 8px 30px rgba(15,23,42,0.06)", textAlign: "center" }}>
+      <div style={{ width: "68px", height: "68px", borderRadius: "50%",
+        background: "#FFF7ED", display: "flex", alignItems: "center",
+        justifyContent: "center", fontSize: "32px", margin: "0 auto 18px" }}>
+        🙏
+      </div>
+      <div style={{ fontFamily: "'DM Sans',sans-serif", fontWeight: "800",
+        fontSize: "19px", color: "#0F172A", marginBottom: "10px" }}>
+        Disculpá las molestias
+      </div>
+      <div style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "14px",
+        color: "#64748B", lineHeight: "1.6", maxWidth: "400px", margin: "0 auto" }}>
+        Probamos con varios profesionales y ninguno pudo tomar tu pedido. Cerramos
+        esta solicitud; podés volver a intentarlo más tarde.
+      </div>
+      {h?.descripcion_raw && (
+        <div style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "13px",
+          color: "#94A3B8", fontStyle: "italic", marginTop: "12px",
+          background: "#F8FAFC", borderRadius: "10px", padding: "10px 14px",
+          display: "inline-block", maxWidth: "400px" }}>
+          “{h.descripcion_raw}”
+        </div>
+      )}
+      <div>
+        <button onClick={onVolver} style={{
+          marginTop: "24px", background: "linear-gradient(135deg,#3B82F6,#2563EB)",
+          color: "#fff", border: "none", borderRadius: "12px", padding: "13px 30px",
+          fontFamily: "'DM Sans',sans-serif", fontWeight: "700", fontSize: "14px",
+          cursor: "pointer", boxShadow: "0 4px 14px rgba(59,130,246,0.3)",
+        }}>← Volver al inicio</button>
+      </div>
+    </div>
+  );
+}
+
+// Tarjeta de un BORRADOR: el cliente pidió diagnóstico pero todavía no envió a
+// nadie. Muestra el diagnóstico y deja continuar (elegir profesional) o cancelar.
+function BorradorCard({ h, onContinuar }) {
+  const urgente = h.urgencia_ia === "URGENTE";
+  const $ = (n) => "$" + Math.round(n || 0).toLocaleString("es-AR");
+  return (
+    <div style={{ background: "#fff", borderRadius: "20px", border: "1.5px solid #DBEAFE",
+      padding: "22px", marginBottom: "16px", boxShadow: "0 2px 16px rgba(0,0,0,0.05)" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "14px", flexWrap: "wrap" }}>
+        <span style={{ background: "#EFF6FF", color: "#1D4ED8", fontSize: "11px", fontWeight: "800",
+          padding: "4px 10px", borderRadius: "999px", fontFamily: "'DM Sans',sans-serif",
+          textTransform: "uppercase", letterSpacing: "0.5px" }}>📝 Pedido en preparación</span>
+        {urgente && <span style={{ background: "#FEF2F2", color: "#B91C1C", fontSize: "11px",
+          fontWeight: "800", padding: "4px 10px", borderRadius: "999px",
+          fontFamily: "'DM Sans',sans-serif" }}>🚨 Urgencia</span>}
+      </div>
+
+      <div style={{ background: "#F8FAFC", borderRadius: "10px", padding: "10px 14px", marginBottom: "12px" }}>
+        <div style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "10px", fontWeight: "700",
+          color: "#94A3B8", textTransform: "uppercase", letterSpacing: "0.6px", marginBottom: "4px" }}>Tu problema</div>
+        <div style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "13px", color: "#0F172A", lineHeight: "1.5" }}>
+          {h.descripcion_raw}
+        </div>
+      </div>
+
+      {h.diagnostico_ia && (
+        <div style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "13px", color: "#475569",
+          lineHeight: "1.5", marginBottom: "10px" }}>
+          <strong>Diagnóstico:</strong> {h.diagnostico_ia}
+        </div>
+      )}
+
+      {(h.presupuesto_min || h.presupuesto_max) ? (
+        <div style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "13px", color: "#0F172A", marginBottom: "12px" }}>
+          💰 Presupuesto estimado: {$(h.presupuesto_min)} – {$(h.presupuesto_max)}
+        </div>
+      ) : null}
+
+      <div style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "12px", color: "#94A3B8",
+        marginBottom: "14px", lineHeight: "1.5" }}>
+        Todavía no enviaste tu pedido a ningún profesional. Elegí uno para continuar
+        — si no lo enviás, se cierra solo a las 48 hs.
+      </div>
+
+      <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+        <button onClick={onContinuar} style={{
+          flex: 1, minWidth: "180px", background: "linear-gradient(135deg,#3B82F6,#2563EB)",
+          color: "#fff", border: "none", borderRadius: "12px", padding: "12px",
+          fontFamily: "'DM Sans',sans-serif", fontWeight: "700", fontSize: "14px", cursor: "pointer" }}>
+          Elegir profesional →
+        </button>
+        <CancelarSolicitudBtn idSolicitud={h.id_solicitud} inline />
+      </div>
+    </div>
+  );
+}
+
 function SolicitudCard({ h, onReSolicitar }) {
   const estado = (h.estado || "").toUpperCase();
   const ahora  = new Date();
-  const mins   = h.fecha ? (ahora - new Date(h.fecha)) / 1000 / 60 : 0;
+  // Para el temporizador usamos el último envío real (reintentos resetean el reloj)
+  const refFecha = h.fecha_ultimo_envio || h.fecha;
+  const mins   = refFecha ? (ahora - new Date(refFecha)) / 1000 / 60 : 0;
   const limite = h.urgencia_ia === "URGENTE" ? 30 : 180;
-  const vencida = estado === "PENDIENTE" && mins > limite;
+  const sinRespuesta = estado === "SIN_RESPUESTA";           // todos rechazaron
+  const vencida = estado === "PENDIENTE" && mins > limite;   // nadie respondió a tiempo
+  const necesitaAccion = sinRespuesta || vencida;
+  const intentosRestantes = h.intentos_restantes ?? 3;
 
   const ESTADOS = [
     { key: "pendiente",              label: "Solicitud enviada",           icon: "📡", desc: "Esperando que un profesional acepte" },
@@ -1176,31 +1320,37 @@ function SolicitudCard({ h, onReSolicitar }) {
 
   return (
     <div style={{ background: "#fff", borderRadius: "20px",
-      border: vencida ? "1.5px solid #FECACA" : "1.5px solid #F1F5F9",
+      border: necesitaAccion ? "1.5px solid #FECACA" : "1.5px solid #F1F5F9",
       padding: "20px", marginBottom: "16px",
       boxShadow: "0 2px 16px rgba(0,0,0,0.05)" }}>
 
-      {vencida && (
+      {necesitaAccion && (
         <div style={{ background: "#FEF2F2", border: "1px solid #FECACA",
           borderRadius: "12px", padding: "14px 16px", marginBottom: "16px",
           display: "flex", gap: "10px", alignItems: "flex-start" }}>
-          <span style={{ fontSize: "18px" }}>⏰</span>
+          <span style={{ fontSize: "18px" }}>{sinRespuesta ? "🙅" : "⏰"}</span>
           <div style={{ flex: 1 }}>
             <div style={{ fontFamily: "'DM Sans',sans-serif", fontWeight: "800",
               fontSize: "13px", color: "#B91C1C", marginBottom: "4px" }}>
-              Nadie respondió esta solicitud
+              {sinRespuesta
+                ? "Los profesionales rechazaron tu pedido"
+                : "Nadie respondió esta solicitud"}
             </div>
             <div style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "12px",
               color: "#7F1D1D", marginBottom: "10px" }}>
-              El tiempo venció. Te recomendamos otros profesionales disponibles.
+              {intentosRestantes > 0
+                ? `Volvé a buscar otros profesionales (te queda${intentosRestantes !== 1 ? "n" : ""} ${intentosRestantes} intento${intentosRestantes !== 1 ? "s" : ""}) o cancelá la solicitud.`
+                : "Se agotaron los reintentos. Cancelá la solicitud para cerrarla."}
             </div>
             <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
-              <button onClick={() => onReSolicitar(h)} style={{
-                background: "linear-gradient(135deg,#EF4444,#B91C1C)",
-                color: "#fff", border: "none", borderRadius: "8px",
-                padding: "7px 14px", fontFamily: "'DM Sans',sans-serif",
-                fontWeight: "700", fontSize: "12px", cursor: "pointer",
-              }}>Volver a solicitar →</button>
+              {intentosRestantes > 0 && (
+                <button onClick={() => onReSolicitar(h)} style={{
+                  background: "linear-gradient(135deg,#EF4444,#B91C1C)",
+                  color: "#fff", border: "none", borderRadius: "8px",
+                  padding: "7px 14px", fontFamily: "'DM Sans',sans-serif",
+                  fontWeight: "700", fontSize: "12px", cursor: "pointer",
+                }}>Volver a buscar →</button>
+              )}
               <CancelarSolicitudBtn idSolicitud={h.id_solicitud} inline />
             </div>
           </div>
@@ -1434,13 +1584,28 @@ function CancelarSolicitudBtn({ idSolicitud, inline = false }) {
 }
 
 
-function ScreenMiSolicitud({ historial, loading, onNav, onReSolicitar }) {
+function ScreenMiSolicitud({ historial, loading, onNav, onReSolicitar, onContinuarBorrador }) {
+  const [vistas, setVistas] = useState(leerCerradasVistas);
+
+  // Al tocar "Volver al inicio": marca la cerrada como vista (no vuelve a aparecer) y navega.
+  const volverAlInicio = (id) => {
+    if (id) { marcarCerradaVista(id); setVistas(leerCerradasVistas()); }
+    onNav("problema");
+  };
+
   const activas = historial
     .filter(h => {
       const e = (h.estado || "").toLowerCase();
       // Solo activas. pendiente_calificacion ya es un trabajo terminado → va en Finalizados.
-      return e === "pendiente" || e === "en_progreso" || e === "en_camino"
-        || e === "reasignacion_pendiente";
+      // sin_respuesta = todos rechazaron y sigue abierta para volver a buscar o cancelar.
+      // cerrada_sin_respuesta = se cerró sola (nadie aceptó): mostramos el cartel de disculpas
+      // SOLO hasta que el cliente lo reconoce con "Volver al inicio".
+      if (e === "cancelada" && h.cerrada_sin_respuesta) {
+        return !vistas.has(h.id_solicitud);
+      }
+      // borrador = pedido en preparación (diagnóstico pedido, todavía sin enviar a nadie).
+      return e === "borrador" || e === "pendiente" || e === "en_progreso" || e === "en_camino"
+        || e === "reasignacion_pendiente" || e === "sin_respuesta";
     })
     .sort((a, b) => new Date(b.fecha) - new Date(a.fecha));
 
@@ -1470,6 +1635,17 @@ function ScreenMiSolicitud({ historial, loading, onNav, onReSolicitar }) {
     </div>
   );
 
+  // Si lo único "activo" son solicitudes que se cerraron sin respuesta, mostramos
+  // SOLO el cartel de disculpas (sin encabezado "activas" ni botón duplicado).
+  const soloCerradas = activas.length > 0 && activas.every(h => h.cerrada_sin_respuesta);
+  if (soloCerradas) return (
+    <div style={{ maxWidth: "560px", margin: "0 auto", padding: "56px 24px" }}>
+      {activas.map(h => (
+        <CerradaSinRespuestaCard key={h.id_solicitud} h={h} onVolver={() => volverAlInicio(h.id_solicitud)} />
+      ))}
+    </div>
+  );
+
   return (
     <div style={{ maxWidth: "600px", margin: "0 auto", padding: "32px 24px" }}>
       <h1 style={{ fontFamily: "'DM Sans',sans-serif", fontWeight: "800",
@@ -1482,7 +1658,11 @@ function ScreenMiSolicitud({ historial, loading, onNav, onReSolicitar }) {
       </p>
 
       {activas.map(h => (
-        <SolicitudCard key={h.id_solicitud} h={h} onReSolicitar={onReSolicitar} />
+        h.cerrada_sin_respuesta
+          ? <CerradaSinRespuestaCard key={h.id_solicitud} h={h} onVolver={() => volverAlInicio(h.id_solicitud)} />
+          : (h.estado || "").toLowerCase() === "borrador"
+            ? <BorradorCard key={h.id_solicitud} h={h} onContinuar={() => onContinuarBorrador(h)} />
+            : <SolicitudCard key={h.id_solicitud} h={h} onReSolicitar={onReSolicitar} />
       ))}
 
       <button onClick={() => onNav("problema")} style={{
@@ -2035,6 +2215,10 @@ export default function HomeCliente({ onLogout }) {
   const [urgencia, setUrgencia] = useState(false);
   const [solicitudActiva, setSolicitud] = useState(null);
   const [idsExcluidos, setIdsExcluidos] = useState([]);
+  // Si está seteado, "Enviar solicitud" reintenta SOBRE esta solicitud (misma, no nueva)
+  const [reintentarId, setReintentarId] = useState(null);
+  // Borrador persistente abierto (pedido en preparación, todavía sin enviar a nadie)
+  const [borradorId, setBorradorId] = useState(null);
 
   // Historial real
   const [historial, setHistorial]       = useState([]);
@@ -2095,35 +2279,48 @@ export default function HomeCliente({ onLogout }) {
     onLogout();                // App.jsx vuelve a view="login"
   };
 
-  const handleBuscar = (texto, urg) => {
+  const handleBuscar = async (texto, urg) => {
     setProblema(texto);
     setUrgencia(urg);
-    const ahora = new Date();
-    const excluidos = new Set();
-    historial.forEach(h => {
-      const e = (h.estado || "").toLowerCase();
-      if (e === "pendiente") {
-        const mins = (ahora - new Date(h.fecha)) / 1000 / 60;
-        const limite = h.urgencia_ia === "URGENTE" ? 30 : 180;
-        if (mins > limite && h.plomeros_notificados?.length > 0) {
-          h.plomeros_notificados.forEach(p => excluidos.add(p.id_plomero));
-        }
-      }
-    });
-    setIdsExcluidos([...excluidos]);
+    setReintentarId(null);   // búsqueda nueva: NO reintenta sobre una solicitud previa
+    setIdsExcluidos([]);     // búsqueda nueva: sin exclusiones
+    // Guardamos un BORRADOR persistente con el diagnóstico, así no se pierde
+    // si el cliente navega a otra pestaña (queda abierto hasta enviar/cancelar/48hs).
+    try {
+      const res = await api.post("/solicitudes/borrador", { descripcion: texto });
+      setBorradorId(res.data?.borrador?.id_solicitud || null);
+    } catch {
+      setBorradorId(null);   // si falla, "Enviar" creará una solicitud nueva igual
+    }
+    cargarHistorial(true);   // refresca "Mi solicitud" con el borrador recién creado
     setScreen("resultados");
   };
 
-  // Re-solicitar con la misma descripción, excluyendo quienes no respondieron
-  const handleReSolicitar = (solicitudVencida) => {
-    const desc = solicitudVencida.descripcion_raw || "";
+  // Continuar un borrador ya guardado (desde "Mi solicitud") → vuelve a resultados.
+  const handleContinuarBorrador = (h) => {
+    const desc = h.descripcion_raw || "";
+    const URGENCIA_KEYWORDS = ["inunda","pérdida","perder","no cierra","roto","explota","revienta","urgente","emergencia","fuga","chorrea","sale agua"];
+    setProblema(desc);
+    setUrgencia(URGENCIA_KEYWORDS.some(k => desc.toLowerCase().includes(k)));
+    setReintentarId(null);
+    setIdsExcluidos([]);
+    setBorradorId(h.id_solicitud);
+    setScreen("resultados");
+  };
+
+  // Volver a buscar SOBRE LA MISMA solicitud (no crea una nueva), excluyendo
+  // a todos los que ya fueron contactados (rechazaron o no respondieron).
+  const handleReSolicitar = (solicitud) => {
+    const desc = solicitud.descripcion_raw || "";
     setProblema(desc);
     // Detectar urgencia por palabras clave
     const URGENCIA_KEYWORDS = ["inunda","pérdida","perder","no cierra","roto","explota","revienta","urgente","emergencia","fuga","chorrea","sale agua"];
     setUrgencia(URGENCIA_KEYWORDS.some(k => desc.toLowerCase().includes(k)));
-    // Excluir los plomeros que no respondieron esta solicitud
-    const excluidos = (solicitudVencida.plomeros_notificados || []).map(p => p.id_plomero);
+    // Excluir a todos los plomeros ya invitados en ESTA solicitud
+    const excluidos = (solicitud.invitaciones || []).map(i => i.id_plomero);
     setIdsExcluidos(excluidos);
+    setReintentarId(solicitud.id_solicitud);   // reintenta sobre la misma solicitud
+    setBorradorId(null);                       // no es un borrador, es un reintento
     setScreen("resultados");
   };
 
@@ -2143,6 +2340,8 @@ export default function HomeCliente({ onLogout }) {
   const handleEnviar = (resp) => {
     setSolicitud(resp);
     if (resp) setHistorial(prev => [resp, ...prev]);
+    setReintentarId(null);   // ya se envió: limpiar el modo reintento
+    setBorradorId(null);     // el borrador ya pasó a solicitud enviada
     cargarHistorial(); // refrescar con datos reales del backend
     setScreen("mi-solicitud");
   };
@@ -2169,6 +2368,8 @@ export default function HomeCliente({ onLogout }) {
           problema={problema}
           urgencia={urgencia}
           idsExcluidos={idsExcluidos}
+          reintentarId={reintentarId}
+          borradorId={borradorId}
           onEnviar={handleEnviar}
           onNav={setScreen}
         />
@@ -2182,6 +2383,7 @@ export default function HomeCliente({ onLogout }) {
           loading={loadingHistorial}
           onNav={setScreen}
           onReSolicitar={handleReSolicitar}
+          onContinuarBorrador={handleContinuarBorrador}
         />
       )}
       {screen === "trabajos-finalizados" && (
