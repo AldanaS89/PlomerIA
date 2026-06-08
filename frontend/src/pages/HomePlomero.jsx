@@ -1083,21 +1083,61 @@ function ScreenHistorial({ historial, loading, puntuacionPerfil, totalTrabajosPe
     </div>
   );
 
+  // ── Finanzas / historial: TODO se calcula con los trabajos REALES (terminados),
+  //    así los stats de arriba, la facturación por mes y el listado detallado
+  //    SIEMPRE coinciden. La plata es estimada (cada trabajo = su boleta, o el
+  //    ticket promedio si no tiene). ──
+  const COMISION = 0.15;
+  const TICKET = 25000;
+  const META_MENSUAL = 500000;
+  const ahora = new Date();
+  const trabajos = terminados.length || totalTrabajosPerfil || 0;
+
+  const alta = fechaRegistroPerfil ? new Date(fechaRegistroPerfil) : null;
+  const altaValida = alta && !isNaN(alta.getTime());
+
+  const porMes = {};
+  const addMes = (d, monto, count) => {
+    if (isNaN(d.getTime())) return;
+    const k = `${d.getFullYear()}-${String(d.getMonth()).padStart(2, "0")}`;
+    porMes[k] = porMes[k] || { count: 0, total: 0, y: d.getFullYear(), m: d.getMonth() };
+    porMes[k].total += monto; porMes[k].count += count;
+  };
+  terminados.forEach(t => addMes(new Date(t.fecha_trabajo || t.fecha), (t.total_boleta || TICKET), 1));
+
+  const filas = Object.values(porMes).sort((a, b) => (b.y - a.y) || (b.m - a.m)).slice(0, 6).reverse();
+  const maxTotal = Math.max(1, ...filas.map(f => f.total));
+  const kMes = `${ahora.getFullYear()}-${String(ahora.getMonth()).padStart(2, "0")}`;
+  const pasado = new Date(ahora.getFullYear(), ahora.getMonth() - 1, 1);
+  const kPasado = `${pasado.getFullYear()}-${String(pasado.getMonth()).padStart(2, "0")}`;
+  const realMes = porMes[kMes]?.total || 0;
+  const realPasado = porMes[kPasado]?.total || 0;
+  const variacion = realPasado > 0 ? Math.round((realMes - realPasado) / realPasado * 100) : null;
+  const realTotal = terminados.reduce((a, t) => a + (t.total_boleta || TICKET), 0);
+  const brutoAcumulado = realTotal;
+  const MESES_ES = ["enero","febrero","marzo","abril","mayo","junio","julio","agosto","septiembre","octubre","noviembre","diciembre"];
+  const miembroDesde = altaValida ? `${MESES_ES[alta.getMonth()]} ${alta.getFullYear()}` : null;
+  const comision = brutoAcumulado * COMISION;
+  const neto = brutoAcumulado - comision;
+  const badge = trabajos >= 100 ? { t: "Plomero Pro", e: "🏆" }
+    : trabajos >= 50 ? { t: "Destacado", e: "⭐" }
+    : trabajos >= 10 ? { t: "En camino", e: "🚀" } : { t: "Nuevo", e: "🌱" };
+  const progreso = Math.min(100, Math.round(realMes / META_MENSUAL * 100));
+  const $ = (n) => "$" + Number(Math.round(n)).toLocaleString("es-AR");
+  const trabajosEsteMes = porMes[kMes]?.count || 0;
+
   return (
     <div style={{ maxWidth:"640px", margin:"0 auto", padding:"28px 24px" }}>
       <h1 style={{ fontFamily:"'DM Sans',sans-serif", fontWeight:"800", fontSize:"22px",
         color:"#0F172A", margin:"0 0 6px" }}>Historial de trabajos</h1>
       <p style={{ fontFamily:"'DM Sans',sans-serif", fontSize:"14px",
-        color:"#64748B", margin:"0 0 20px" }}>{terminados.length} trabajos finalizados</p>
+        color:"#64748B", margin:"0 0 20px" }}>{trabajos} trabajos finalizados</p>
 
       <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:"12px", marginBottom:"24px" }}>
         {[
-          { label:"Trabajos",  value:terminados.length, color:"#3B82F6" },
+          { label:"Trabajos",  value:trabajos, color:"#3B82F6" },
           { label:"Promedio",  value:`⭐ ${promedio}`,  color:"#F59E0B" },
-          { label:"Este mes",  value:terminados.filter(t => {
-              const d = new Date(t.fecha); const n = new Date();
-              return d.getMonth()===n.getMonth() && d.getFullYear()===n.getFullYear();
-            }).length, color:"#22C55E" },
+          { label:"Este mes",  value:trabajosEsteMes, color:"#22C55E" },
         ].map(s => (
           <div key={s.label} style={{ background:"#fff", borderRadius:"14px",
             border:"1.5px solid #F1F5F9", padding:"16px", textAlign:"center" }}>
@@ -1109,62 +1149,6 @@ function ScreenHistorial({ historial, loading, puntuacionPerfil, totalTrabajosPe
       </div>
 
       {(() => {
-        const COMISION = 0.15;        // lo que el plomero paga a la app por boleta
-        const TICKET = 25000;         // ticket promedio simulado para el historial
-        const META_MENSUAL = 500000;
-        const ahora = new Date();
-        const trabajos = totalTrabajosPerfil || terminados.length;
-
-        // Antigüedad en la app (fecha_registro)
-        const alta = fechaRegistroPerfil ? new Date(fechaRegistroPerfil) : null;
-        const altaValida = alta && !isNaN(alta.getTime());
-        const mesesActivo = altaValida
-          ? Math.max(1, (ahora.getFullYear() - alta.getFullYear()) * 12 + (ahora.getMonth() - alta.getMonth()) + 1)
-          : 1;
-
-        // Serie mensual: historial SIMULADO repartido desde el alta + boletas REALES encima
-        const porMes = {};
-        const addMes = (d, monto, real) => {
-          if (isNaN(d.getTime())) return;
-          const k = `${d.getFullYear()}-${String(d.getMonth()).padStart(2, "0")}`;
-          porMes[k] = porMes[k] || { count: 0, total: 0, y: d.getFullYear(), m: d.getMonth() };
-          porMes[k].total += monto;
-          if (real) porMes[k].count += 1;
-        };
-        const simMensual = (trabajos * TICKET) / mesesActivo;
-        const baseMeses = Math.min(mesesActivo, 12);
-        for (let i = 0; i < baseMeses; i++) {
-          const d = new Date(ahora.getFullYear(), ahora.getMonth() - i, 1);
-          const variacion = 0.8 + (((d.getMonth() + 3) % 5) * 0.1); // leve variación estética
-          addMes(d, Math.round(simMensual * variacion), false);
-        }
-        terminados.forEach(t => addMes(new Date(t.fecha_trabajo || t.fecha), (t.total_boleta || 0), true));
-
-        const filas = Object.values(porMes)
-          .sort((a, b) => (b.y - a.y) || (b.m - a.m)).slice(0, 6).reverse();
-        const maxTotal = Math.max(1, ...filas.map(f => f.total));
-
-        const kMes = `${ahora.getFullYear()}-${String(ahora.getMonth()).padStart(2, "0")}`;
-        const pasado = new Date(ahora.getFullYear(), ahora.getMonth() - 1, 1);
-        const kPasado = `${pasado.getFullYear()}-${String(pasado.getMonth()).padStart(2, "0")}`;
-        const realMes = porMes[kMes]?.total || 0;
-        const realPasado = porMes[kPasado]?.total || 0;
-        const variacion = realPasado > 0 ? Math.round((realMes - realPasado) / realPasado * 100) : null;
-
-        const realTotal = terminados.reduce((a, t) => a + (t.total_boleta || 0), 0);
-        // Simulamos el historial de quienes ya venían usando la app
-        const brutoAcumulado = trabajos * TICKET + realTotal;
-        const MESES_ES = ["enero","febrero","marzo","abril","mayo","junio","julio","agosto","septiembre","octubre","noviembre","diciembre"];
-        const miembroDesde = altaValida ? `${MESES_ES[alta.getMonth()]} ${alta.getFullYear()}` : null;
-        const comision = brutoAcumulado * COMISION;
-        const neto = brutoAcumulado - comision;
-
-        const badge = trabajos >= 100 ? { t: "Plomero Pro", e: "🏆" }
-          : trabajos >= 50 ? { t: "Destacado", e: "⭐" }
-          : trabajos >= 10 ? { t: "En camino", e: "🚀" } : { t: "Nuevo", e: "🌱" };
-        const progreso = Math.min(100, Math.round(realMes / META_MENSUAL * 100));
-        const $ = (n) => "$" + Number(Math.round(n)).toLocaleString("es-AR");
-
         return (
           <>
             {/* Tarjeta destacada de ganancias */}

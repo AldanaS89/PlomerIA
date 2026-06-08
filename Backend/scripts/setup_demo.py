@@ -26,7 +26,9 @@ def main():
     run("cargar_plomeros.py")
     run("simular_antiguedad.py")
     run("generar_agendas.py")
-    print("\n✅ Listo: base limpia con plomeros ficticios, agendas y antigüedad.")
+    run("generar_datos_ficticios.py")
+    print("\n✅ Listo: base limpia con plomeros ficticios, agendas, antigüedad, "
+          "historial y trabajos futuros (agenda ocupada).")
 
 
 if __name__ == "__main__":

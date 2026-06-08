@@ -107,3 +107,13 @@ def main():
 
 if __name__ == "__main__":
     main()
+    # Tras limpiar, regeneramos los datos ficticios (historial + agenda ocupada)
+    # para los plomeros ficticios. Se corre como proceso aparte para no chocar
+    # con la sesión de SQLite que main() acaba de cerrar.
+    import subprocess
+    BACKEND = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    print("\nRegenerando datos ficticios (historial + agenda ocupada)...")
+    subprocess.run(
+        [sys.executable, os.path.join("scripts", "generar_datos_ficticios.py")],
+        cwd=BACKEND,
+    )

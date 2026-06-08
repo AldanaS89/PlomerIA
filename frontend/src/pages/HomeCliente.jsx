@@ -371,13 +371,15 @@ const DIAS_NOMBRE = ["Domingo","Lunes","Martes","Miércoles","Jueves","Viernes",
 const MESES = ["ene","feb","mar","abr","may","jun","jul","ago","sep","oct","nov","dic"];
 
 function getFechaParaDia(diaStr) {
-  // Devuelve el próximo Date que coincida con el día de la semana
+  // Devuelve el próximo Date que coincida con el día de la semana.
+  // diff === 0 = HOY (no lo empujamos a la semana que viene): así coincide con
+  // el backend (_calcular_fecha_trabajo) y se ofrecen los días reales de esta semana.
   const IDX = { "Lun":1,"Mar":2,"Mié":3,"Jue":4,"Vie":5,"Sáb":6,"Dom":0 };
   const hoy = new Date();
   const hoyNum = hoy.getDay();
   const target = IDX[diaStr] ?? 1;
   let diff = target - hoyNum;
-  if (diff <= 0) diff += 7;
+  if (diff < 0) diff += 7;        // solo días ya pasados de esta semana → próxima
   const fecha = new Date(hoy);
   fecha.setDate(hoy.getDate() + diff);
   return fecha;
@@ -394,7 +396,7 @@ function formatearTurno(turnoStr) {
     const hoyNum = hoy.getDay();
     const target = IDX[dia] ?? 1;
     let diff = target - hoyNum;
-    if (diff <= 0) diff += 7;
+    if (diff < 0) diff += 7;
     const fecha = new Date(hoy);
     fecha.setDate(hoy.getDate() + diff);
     const fechaStr = `${fecha.getDate()}/${fecha.getMonth() + 1}`;
