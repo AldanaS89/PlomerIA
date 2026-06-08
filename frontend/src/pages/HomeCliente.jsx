@@ -402,6 +402,24 @@ function formatearTurno(turnoStr) {
   } catch { return turnoStr.replace(/_/g, " "); }
 }
 
+// Muestra la fecha del trabajo. Prioriza la fecha REAL guardada (fecha_trabajo)
+// en vez de recalcular del día de la semana (que "drifta" y manda al futuro).
+function fechaTurnoStr(h) {
+  if (h?.fecha_trabajo) {
+    const d = new Date(h.fecha_trabajo);
+    if (!isNaN(d.getTime())) {
+      const dias = ["Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"];
+      const hh = d.getHours();
+      const mm = d.getMinutes();
+      const horaTxt = (hh || mm)
+        ? ` a las ${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}hs`
+        : "";
+      return `${dias[d.getDay()]} ${d.getDate()}/${d.getMonth() + 1}${horaTxt}`;
+    }
+  }
+  return formatearTurno(h?.turno_solicitado);
+}
+
 function TurnoSelector({ plomero, turnoActual, onSelect }) {
   const agenda = plomero.agenda || {};
   const hayAgenda = Object.values(agenda).some(Boolean);
@@ -414,15 +432,24 @@ function TurnoSelector({ plomero, turnoActual, onSelect }) {
     </div>
   );
 
-  // Días que tienen al menos una franja disponible
+  // Franjas ya reservadas (de otros trabajos en curso): "YYYY-MM-DD_franja".
+  // Si una franja está ocupada ese día, no la ofrecemos (bloqueo por franja).
+  const ocupados = plomero.ocupados || [];
+  const fechaISOde = (dia) => {
+    const f = getFechaParaDia(dia);
+    return `${f.getFullYear()}-${String(f.getMonth() + 1).padStart(2, "0")}-${String(f.getDate()).padStart(2, "0")}`;
+  };
+  const franjaOcupada = (dia, franjaKey) => ocupados.includes(`${fechaISOde(dia)}_${franjaKey}`);
+
+  // Días con al menos una franja disponible y NO ocupada
   const diasDisponibles = DIAS_DISP.filter(dia =>
-    FRANJAS_DISP.some(f => agenda[`${dia}_${f.key}`])
+    FRANJAS_DISP.some(f => agenda[`${dia}_${f.key}`] && !franjaOcupada(dia, f.key))
   );
 
-  // Horas disponibles para el día elegido (todas las horas de las franjas disponibles)
+  // Horas disponibles para el día elegido (excluye franjas ocupadas)
   const horasDelDia = diaElegido
     ? FRANJAS_DISP
-        .filter(f => agenda[`${diaElegido}_${f.key}`])
+        .filter(f => agenda[`${diaElegido}_${f.key}`] && !franjaOcupada(diaElegido, f.key))
         .flatMap(f => f.horas)
     : [];
 
@@ -623,6 +650,15 @@ function ScreenResultados({ problema, urgencia, idsExcluidos = [], onEnviar }) {
     } else {
       setSelec(prev => prev.filter(x => x !== idPlomero));
     }
+  };
+
+  // En modo URGENCIA no hay turno (va "lo antes posible"), así que la selección
+  // se hace tocando la tarjeta. En modo normal la selección se hace eligiendo turno.
+  const toggle = (idPlomero) => {
+    if (!urgencia) return;
+    setSelec(prev => prev.includes(idPlomero)
+      ? prev.filter(x => x !== idPlomero)
+      : [...prev, idPlomero]);
   };
 
   const handleEnviar = async () => {
@@ -910,7 +946,9 @@ function ScreenResultados({ problema, urgencia, idsExcluidos = [], onEnviar }) {
             color: seleccionados.length > 0 ? "#94A3B8" : "#475569" }}>
             {seleccionados.length > 0
               ? `${seleccionados.length} profesional${seleccionados.length > 1 ? "es" : ""} seleccionado${seleccionados.length > 1 ? "s" : ""}`
-              : "Elegí un turno para seleccionar un profesional"}
+              : urgencia
+                ? "Tocá una tarjeta para seleccionar al profesional"
+                : "Elegí un turno para seleccionar un profesional"}
           </div>
           {seleccionados.length > 0 && (
             <div style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "13px", color: "#94A3B8" }}>
@@ -1279,12 +1317,12 @@ function SolicitudCard({ h, onReSolicitar }) {
                 color: "#64748B", marginTop: "3px" }}>
                 📍 {h.localidad_plomero || h.plomero?.localidad || "—"}
               </div>
-              {h.turno_solicitado ? (
+              {(h.fecha_trabajo || h.turno_solicitado) ? (
                 <div style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "13px",
                   color: "#15803D", fontWeight: "700", marginTop: "6px",
                   background: "#DCFCE7", borderRadius: "6px", padding: "4px 8px",
                   display: "inline-block" }}>
-                  📅 {formatearTurno(h.turno_solicitado)}
+                  📅 {fechaTurnoStr(h)}
                 </div>
               ) : (
                 <div style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "12px",
@@ -1976,12 +2014,14 @@ export function useNotificaciones(token) {
   const marcarTodas = useCallback(async () => {
     setNotifs(prev => prev.map(x => ({ ...x, leida: true })));
     try { await api.patch("/notificaciones/leer-todas"); } catch { /* noop */ }
-  }, []);
+    poll(); // re-sincroniza con el servidor (evita que un fetch viejo las reviva)
+  }, [poll]);
 
   const eliminarTodas = useCallback(async () => {
     setNotifs([]);
     try { await api.delete("/notificaciones/"); } catch { /* noop */ }
-  }, []);
+    poll();
+  }, [poll]);
 
   return [notifs, marcarTodas, eliminarTodas];
 }

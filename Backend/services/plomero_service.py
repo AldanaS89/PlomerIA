@@ -13,8 +13,18 @@ import random as _random
 from utils.geolocalizacion import distancia_km, geocodificar
 from utils.email import enviar_reset_password
 from models.plomero import Plomero
+from models.solicitud import Solicitud, EstadoSolicitud
 
 import secrets
+
+
+def _franja_de_hora(h: int) -> str:
+    """Mapea una hora a su franja: mañana (8-12), tarde (13-17), noche (18+)."""
+    if h <= 12:
+        return "manana"
+    if h <= 17:
+        return "tarde"
+    return "noche"
 
 RADIO_KM = 5.0
 
@@ -459,6 +469,25 @@ def sugerir(
         key=lambda p: (-relevancia(p), tramo(p), -p.puntuacion, dist(p))
     )[:5]
 
+    # Franjas ya ocupadas por fecha (trabajos en curso) → "YYYY-MM-DD_franja".
+    # El frontend usa esto para no ofrecer una franja ya reservada de ese plomero.
+    ocupados_map = {}
+    ids = [p.id_plomero for p in resultado]
+    if ids:
+        reservas = (
+            db.query(Solicitud)
+            .filter(
+                Solicitud.id_plomero.in_(ids),
+                Solicitud.estado.in_([EstadoSolicitud.EN_PROGRESO, EstadoSolicitud.EN_CAMINO]),
+                Solicitud.fecha_trabajo.isnot(None),
+            )
+            .all()
+        )
+        for r in reservas:
+            ft = r.fecha_trabajo
+            clave = f"{ft.strftime('%Y-%m-%d')}_{_franja_de_hora(ft.hour)}"
+            ocupados_map.setdefault(r.id_plomero, []).append(clave)
+
     # ─────────────────────────────────────────────────────────
     # FORMATEAR RESPUESTA
     # ─────────────────────────────────────────────────────────
@@ -484,6 +513,7 @@ def sugerir(
                 if es_urgente and p.agenda
                 else p.agenda or {}
             ),
+            "ocupados":          ocupados_map.get(p.id_plomero, []),
         }
         for p in resultado
     ]

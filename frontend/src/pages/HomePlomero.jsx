@@ -356,9 +356,11 @@ function formatearTurno(turnoStr) {
   } catch { return turnoStr.replace(/_/g, " "); }
 }
 
-function ScreenActivos({ activos, onEnCamino, onCompletar, onCancelar, loading }) {
+function ScreenActivos({ activos, onEnCamino, onCompletar, onCancelar, onReprogramar, loading }) {
   const [loadingId,  setLoadingId]  = useState(null);
   const [cancelando, setCancelando] = useState(null);
+  const [reprog,     setReprog]     = useState(null);  // id con form de reprogramar abierto
+  const [nuevaFecha, setNuevaFecha] = useState("");
 
   if (loading) return (
     <div style={{ display:"flex", justifyContent:"center", padding:"80px" }}>
@@ -499,15 +501,14 @@ function ScreenActivos({ activos, onEnCamino, onCompletar, onCancelar, loading }
 
             {/* Botones de acción según estado */}
             {esEnProgreso && (() => {
-              const esDiaDelTurno = (() => {
-                // Habilitado el día del trabajo o después (no antes)
-                if (t.fecha_trabajo) {
-                  const dia = new Date(t.fecha_trabajo); dia.setHours(0, 0, 0, 0);
-                  const hoy = new Date(); hoy.setHours(0, 0, 0, 0);
-                  return hoy >= dia;
-                }
-                return true; // sin fecha definida, no bloqueamos
-              })();
+              // "En camino" se habilita desde 2 h antes del horario acordado.
+              let puede = true, desdeTxt = "";
+              if (t.fecha_trabajo) {
+                const ft = new Date(t.fecha_trabajo);
+                const habilita = new Date(ft.getTime() - 2 * 60 * 60 * 1000);
+                puede = new Date() >= habilita;
+                desdeTxt = habilita.toLocaleString("es-AR", { weekday:"short", hour:"2-digit", minute:"2-digit" });
+              }
               return (
                 <button
                   onClick={async () => {
@@ -515,43 +516,97 @@ function ScreenActivos({ activos, onEnCamino, onCompletar, onCancelar, loading }
                     await onEnCamino(t.id_solicitud);
                     setLoadingId(null);
                   }}
-                  disabled={!!loadingId || !esDiaDelTurno}
-                  title={!esDiaDelTurno ? "Solo podés marcar en camino el día del trabajo" : ""}
+                  disabled={!!loadingId || !puede}
+                  title={!puede ? `Disponible desde ${desdeTxt} (2 h antes del turno)` : ""}
                   style={{ width:"100%",
-                    background: esDiaDelTurno
-                      ? "linear-gradient(135deg,#3B82F6,#2563EB)" : "#E2E8F0",
+                    background: puede ? "linear-gradient(135deg,#3B82F6,#2563EB)" : "#E2E8F0",
                     border:"none", borderRadius:"14px", padding:"13px",
                     fontFamily:"'DM Sans',sans-serif", fontWeight:"800", fontSize:"14px",
-                    color: esDiaDelTurno ? "#fff" : "#94A3B8",
-                    cursor: esDiaDelTurno ? "pointer" : "not-allowed",
+                    color: puede ? "#fff" : "#94A3B8",
+                    cursor: puede ? "pointer" : "not-allowed",
                     marginBottom:"10px",
-                    boxShadow: esDiaDelTurno ? "0 4px 14px rgba(59,130,246,0.3)" : "none",
+                    boxShadow: puede ? "0 4px 14px rgba(59,130,246,0.3)" : "none",
                     display:"flex", alignItems:"center", justifyContent:"center", gap:"8px",
                   }}>
                   {loadingId === "camino_" + t.id_solicitud ? <Spinner size={16}/> : null}
-                  🚗 {esDiaDelTurno ? "Voy en camino" : "Disponible el día del trabajo"}
+                  🚗 {puede ? "Voy en camino" : `Disponible ${desdeTxt}`}
                 </button>
               );
             })()}
 
-            {esEnCamino && (
+            {esEnCamino && (() => {
+              // "Finalizar" se habilita a partir de la hora del turno.
+              let puede = true, horaTxt = "";
+              if (t.fecha_trabajo) {
+                const ft = new Date(t.fecha_trabajo);
+                puede = new Date() >= ft;
+                horaTxt = ft.toLocaleTimeString("es-AR", { hour:"2-digit", minute:"2-digit" });
+              }
+              return (
+                <button
+                  onClick={async () => {
+                    if (!puede) return;
+                    setLoadingId("completar_" + t.id_solicitud);
+                    await onCompletar(t.id_solicitud);
+                    setLoadingId(null);
+                  }}
+                  disabled={!!loadingId || !puede}
+                  title={!puede ? `Podés finalizar a partir de las ${horaTxt}` : ""}
+                  style={{ width:"100%",
+                    background: puede ? "linear-gradient(135deg,#22C55E,#16A34A)" : "#E2E8F0",
+                    border:"none", borderRadius:"14px", padding:"13px",
+                    fontFamily:"'DM Sans',sans-serif", fontWeight:"800", fontSize:"14px",
+                    color: puede ? "#fff" : "#94A3B8", cursor: puede ? "pointer" : "not-allowed",
+                    marginBottom:"10px",
+                    boxShadow: puede ? "0 4px 14px rgba(34,197,94,0.3)" : "none",
+                    display:"flex", alignItems:"center", justifyContent:"center", gap:"8px",
+                  }}>
+                  {loadingId === "completar_" + t.id_solicitud ? <Spinner size={16}/> : null}
+                  🏁 {puede ? "Terminé el trabajo" : `Finalizar disponible ${horaTxt}`}
+                </button>
+              );
+            })()}
+
+            {/* Reprogramar horario (si lo acuerdan por chat) */}
+            {reprog === t.id_solicitud ? (
+              <div style={{ marginBottom:"10px", background:"#F8FAFC", border:"1px solid #E2E8F0",
+                borderRadius:"10px", padding:"12px" }}>
+                <div style={{ fontFamily:"'DM Sans',sans-serif", fontSize:"12px", fontWeight:"700",
+                  color:"#475569", marginBottom:"6px" }}>Nueva fecha y hora del trabajo</div>
+                <input type="datetime-local" value={nuevaFecha} onChange={e=>setNuevaFecha(e.target.value)}
+                  style={{ width:"100%", border:"1.5px solid #E2E8F0", borderRadius:"8px", padding:"8px",
+                    fontFamily:"'DM Sans',sans-serif", fontSize:"13px", marginBottom:"8px", boxSizing:"border-box" }} />
+                <div style={{ display:"flex", gap:"8px" }}>
+                  <button onClick={()=>{ setReprog(null); setNuevaFecha(""); }} style={{
+                    background:"#fff", border:"1px solid #E2E8F0", borderRadius:"8px", padding:"8px 12px",
+                    fontFamily:"'DM Sans',sans-serif", fontSize:"12px", color:"#475569", cursor:"pointer", fontWeight:"600" }}>
+                    Cancelar
+                  </button>
+                  <button disabled={!nuevaFecha}
+                    onClick={async ()=>{ await onReprogramar(t.id_solicitud, nuevaFecha); setReprog(null); setNuevaFecha(""); }}
+                    style={{ flex:1, background: nuevaFecha ? "linear-gradient(135deg,#3B82F6,#2563EB)" : "#E2E8F0",
+                      color: nuevaFecha ? "#fff" : "#94A3B8", border:"none", borderRadius:"8px", padding:"8px",
+                      fontFamily:"'DM Sans',sans-serif", fontWeight:"700", fontSize:"13px",
+                      cursor: nuevaFecha ? "pointer" : "not-allowed" }}>
+                    Guardar nuevo horario
+                  </button>
+                </div>
+              </div>
+            ) : t.comunicacion_ok ? (
+              <button onClick={()=>{ setReprog(t.id_solicitud); setNuevaFecha(""); }} style={{
+                marginBottom:"10px", width:"100%", background:"transparent", border:"1px solid #BFDBFE",
+                borderRadius:"10px", padding:"9px", fontFamily:"'DM Sans',sans-serif", fontSize:"12px",
+                color:"#1D4ED8", cursor:"pointer", fontWeight:"600" }}>
+                🗓️ Reprogramar horario
+              </button>
+            ) : (
               <button
-                onClick={async () => {
-                  setLoadingId("completar_" + t.id_solicitud);
-                  await onCompletar(t.id_solicitud);
-                  setLoadingId(null);
-                }}
-                disabled={!!loadingId}
-                style={{ width:"100%",
-                  background:"linear-gradient(135deg,#22C55E,#16A34A)",
-                  border:"none", borderRadius:"14px", padding:"13px",
-                  fontFamily:"'DM Sans',sans-serif", fontWeight:"800", fontSize:"14px",
-                  color:"#fff", cursor:"pointer", marginBottom:"10px",
-                  boxShadow:"0 4px 14px rgba(34,197,94,0.3)",
-                  display:"flex", alignItems:"center", justifyContent:"center", gap:"8px",
-                }}>
-                {loadingId === "completar_" + t.id_solicitud ? <Spinner size={16}/> : null}
-                🏁 Terminé el trabajo
+                onClick={() => window.dispatchEvent(new CustomEvent("plomeria:abrir-chat", { detail: { idSolicitud: t.id_solicitud } }))}
+                style={{ marginBottom:"10px", width:"100%", background:"#F8FAFC",
+                  border:"1px dashed #CBD5E1", borderRadius:"10px", padding:"9px",
+                  fontFamily:"'DM Sans',sans-serif", fontSize:"11px", color:"#64748B",
+                  textAlign:"center", fontWeight:"600", cursor:"pointer" }}>
+                🗓️💬 Para reprogramar, coordiná primero por el chat (tocá acá para escribirle)
               </button>
             )}
 
@@ -1053,7 +1108,7 @@ function ScreenHistorial({ historial, loading, puntuacionPerfil, totalTrabajosPe
         ))}
       </div>
 
-      {terminados.length > 0 && (() => {
+      {(() => {
         const COMISION = 0.15;        // lo que el plomero paga a la app por boleta
         const TICKET = 25000;         // ticket promedio simulado para el historial
         const META_MENSUAL = 500000;
@@ -1404,6 +1459,14 @@ export default function HomePlomero({ onLogout }) {
     } catch (e) { console.error("Error cancelando:", e); }
   };
 
+  const handleReprogramar = async (idSolicitud, fechaISO) => {
+    if (!fechaISO) return;
+    try {
+      await api.patch(`/solicitudes/${idSolicitud}/reprogramar`, { fecha_trabajo: fechaISO });
+      await cargarSolicitudes();
+    } catch (e) { console.error("Error reprogramando:", e); }
+  };
+
   const handleLogout = () => { logout(); onLogout(); };
 
   const conversacionesActivas = activos.map(a => ({
@@ -1433,7 +1496,8 @@ export default function HomePlomero({ onLogout }) {
       {screen==="activos" && (
         <ScreenActivos
           activos={activos} onEnCamino={handleEnCamino}
-          onCompletar={handleCompletar} onCancelar={handleCancelar} loading={loading}
+          onCompletar={handleCompletar} onCancelar={handleCancelar}
+          onReprogramar={handleReprogramar} loading={loading}
         />
       )}
       {screen==="agenda" && <ScreenAgenda activos={activos} historial={historial}/>}

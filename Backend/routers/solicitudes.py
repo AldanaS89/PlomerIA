@@ -1,14 +1,20 @@
 # routers/solicitudes.py
+from datetime import datetime
 from fastapi import APIRouter, Depends
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from typing import Optional
 
 from database import get_db
 from services import solicitud_service
-from core.auth import get_plomero_actual, get_usuario_actual
+from core.auth import get_plomero_actual, get_usuario_actual, get_actor_actual
 from schemas.solicitud import SolicitudCreate
 
 router = APIRouter(tags=["Solicitudes"])
+
+
+class ReprogramarBody(BaseModel):
+    fecha_trabajo: datetime
 
 
 # ── CREAR ─────────────────────────────────────────────────────────────────────
@@ -80,6 +86,16 @@ def completar(
     id_plomero: int = Depends(get_plomero_actual),
 ):
     return solicitud_service.completar(db, id_solicitud, id_plomero)
+
+
+@router.patch("/{id_solicitud}/reprogramar")
+def reprogramar(
+    id_solicitud: int,
+    body: ReprogramarBody,
+    db: Session = Depends(get_db),
+    actor: dict = Depends(get_actor_actual),
+):
+    return solicitud_service.reprogramar(db, id_solicitud, actor, body.fecha_trabajo)
 
 
 @router.patch("/{id_solicitud}/cancelar_plomero")

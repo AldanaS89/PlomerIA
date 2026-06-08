@@ -20,6 +20,7 @@ from repositories import (
     plomero_repository,
     calificacion_repository,
     material_repository,
+    mensaje_repository,
 )
 
 from services.filtrado_service import filtrado_service
@@ -789,6 +790,46 @@ def completar(
 
     return _to_response(solicitud)
 
+def reprogramar(db: Session, id_solicitud: int, actor: dict, nueva_fecha):
+    """
+    Reprograma la fecha/hora del trabajo (cuando cliente y plomero lo acuerdan).
+    Lo puede hacer cualquiera de los dos mientras el trabajo está en curso.
+    """
+    solicitud = solicitud_repository.obtener_por_id(db, id_solicitud)
+    if not solicitud:
+        raise HTTPException(status_code=404, detail="No encontrada")
+    if actor["id"] not in [solicitud.id_usuario, solicitud.id_plomero]:
+        raise HTTPException(status_code=403, detail="No autorizado")
+    if solicitud.estado not in (EstadoSolicitud.EN_PROGRESO, EstadoSolicitud.EN_CAMINO):
+        raise HTTPException(status_code=400, detail="Solo se puede reprogramar un trabajo en curso")
+    # Debe haber comunicación previa: ambos escribieron en el chat.
+    if not mensaje_repository.hubo_intercambio(db, id_solicitud):
+        raise HTTPException(
+            status_code=400,
+            detail="Coordiná el nuevo horario por el chat antes de reprogramar (deben escribir ambos)",
+        )
+
+    solicitud.fecha_trabajo = nueva_fecha
+    db.commit()
+    db.refresh(solicitud)
+
+    if actor["role"] == "plomero":
+        notificaciones_inapp.notificar_cliente(
+            db, id_usuario=solicitud.id_usuario, tipo="reprogramado",
+            titulo="Visita reprogramada 🗓️",
+            mensaje="El profesional reprogramó el horario de la visita.",
+            id_solicitud=id_solicitud,
+        )
+    else:
+        notificaciones_inapp.notificar_plomero(
+            db, id_plomero=solicitud.id_plomero, tipo="reprogramado",
+            titulo="Visita reprogramada 🗓️",
+            mensaje="El cliente propuso un nuevo horario para la visita.",
+            id_solicitud=id_solicitud,
+        )
+    return _to_response(solicitud)
+
+
 def cancelar(db: Session, id_solicitud: int, id_usuario: int):
     """
     Cancelacion por parte del CLIENTE.
@@ -953,6 +994,8 @@ def _con_flags_calificacion(db, s, r):
     r["cliente_califico"] = calificacion_repository.ya_califico(db, s.id_solicitud, "cliente")
     r["plomero_califico"] = calificacion_repository.ya_califico(db, s.id_solicitud, "plomero")
     r["total_boleta"] = material_repository.total_por_solicitud(db, s.id_solicitud)
+    # Hubo intercambio en el chat (cliente y plomero escribieron) → habilita reprogramar
+    r["comunicacion_ok"] = mensaje_repository.hubo_intercambio(db, s.id_solicitud)
     return r
 
 
