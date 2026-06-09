@@ -65,12 +65,14 @@ export function useNotificaciones(token) {
   const marcarTodas = useCallback(async () => {
     setNotifs(prev => prev.map(x => ({ ...x, leida: true })));
     try { await api.patch("/notificaciones/leer-todas"); } catch { /* noop */ }
-  }, []);
+    poll(); // re-sincroniza con el servidor (evita que un fetch viejo las reviva)
+  }, [poll]);
 
   const eliminarTodas = useCallback(async () => {
     setNotifs([]);
     try { await api.delete("/notificaciones/"); } catch { /* noop */ }
-  }, []);
+    poll();
+  }, [poll]);
 
   return [notifs, marcarTodas, eliminarTodas];
 }

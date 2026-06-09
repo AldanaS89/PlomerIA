@@ -17,6 +17,11 @@ from database import Base
 
 
 class EstadoSolicitud(enum.Enum):
+    # borrador — el cliente pidió diagnóstico y vio recomendaciones, pero
+    # todavía no envió la solicitud a ningún plomero. Persiste hasta que la
+    # envía, la cancela, o se cierra sola a las 48hs de inactividad.
+    BORRADOR               = "borrador"
+
     # inicial — esperando que un plomero acepte
     PENDIENTE              = "pendiente"
 

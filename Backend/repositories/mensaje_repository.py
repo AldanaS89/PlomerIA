@@ -16,3 +16,15 @@ def listar_por_solicitud(db, id_solicitud: int):
         .order_by(Mensaje.fecha.asc())
         .all()
     )
+
+
+def hubo_intercambio(db, id_solicitud: int) -> bool:
+    """True si en el chat escribieron AMBOS (cliente y plomero) — intercambio real."""
+    roles = (
+        db.query(Mensaje.emisor_rol)
+        .filter(Mensaje.id_solicitud == id_solicitud)
+        .distinct()
+        .all()
+    )
+    roles_set = {r[0] for r in roles}
+    return "usuario" in roles_set and "plomero" in roles_set

@@ -13,8 +13,18 @@ import random as _random
 from utils.geolocalizacion import distancia_km, geocodificar
 from utils.email import enviar_reset_password
 from models.plomero import Plomero
+from models.solicitud import Solicitud, EstadoSolicitud
 
 import secrets
+
+
+def _franja_de_hora(h: int) -> str:
+    """Mapea una hora a su franja: mañana (8-12), tarde (13-17), noche (18+)."""
+    if h <= 12:
+        return "manana"
+    if h <= 17:
+        return "tarde"
+    return "noche"
 
 RADIO_KM = 5.0
 
@@ -312,6 +322,7 @@ def sugerir(
     lat_usuario:      float | None,
     lon_usuario:      float | None,
     urgencia_forzada: bool,
+    excluidos:        list[int] | None = None,
 ):
     from services import ia_service
 
@@ -361,86 +372,60 @@ def sugerir(
     # URGENTE — 4 niveles de fallback, nunca devuelve vacío
     # ─────────────────────────────────────────────────────────
     if es_urgente:
+        # Universo: TODOS los que atienden urgencias (con filtro de género),
+        # SIN recortar por radio. La cercanía se respeta después al ordenar por
+        # tramos (<5 / 5–10 / >10 km), así SIEMPRE completamos hasta 5 si los hay,
+        # priorizando los más cercanos y mejor puntuados.
+        universo = plomero_repository.filtrar(
+            db,
+            genero            = genero_filtro,
+            atiende_urgencias = True,
+            solo_disponibles  = False,
+        )
 
-        # NIVEL 1 — radio progresivo 5→10→20→50km
-        # Exige: atiende_urgencias + disponible_ahora + slot hoy o mañana
-        plomeros = []
-        for radio in [5, 10, 20, 50, None]:
-            candidatos = plomero_repository.filtrar(
-                db,
-                genero            = genero_filtro,
-                atiende_urgencias = True,
-                solo_disponibles  = True,
-                lat_usuario       = lat_usuario if radio else None,
-                lon_usuario       = lon_usuario if radio else None,
-                radio_km          = radio,
-            )
-            candidatos = [p for p in candidatos if tiene_slot(p, keys_urgencia)]
-            if len(candidatos) >= 5:
-                plomeros = candidatos
-                break
-            if candidatos:
-                plomeros = candidatos  # guardamos lo que hay aunque sea poco
+        # Disponibilidad de más a menos estricta; acumulamos hasta llegar a 5.
+        inmediatos = [
+            p for p in universo
+            if p.disponible_ahora or tiene_slot(p, keys_urgencia)    # ya, o franja hoy/mañana
+        ]
+        tres_dias = [p for p in universo if tiene_slot(p, keys_3dias)]  # hasta pasado mañana
 
-        # NIVEL 2 — amplía a pasado mañana, NO exige disponible_ahora
-        # Puede estar durmiendo — le mandamos solicitud igual
-        if not plomeros:
-            for radio in [5, 10, 20, None]:
-                candidatos = plomero_repository.filtrar(
-                    db,
-                    genero            = genero_filtro,
-                    atiende_urgencias = True,
-                    solo_disponibles  = False,   # ← no exigir disponible ahora
-                    lat_usuario       = lat_usuario if radio else None,
-                    lon_usuario       = lon_usuario if radio else None,
-                    radio_km          = radio,
-                )
-                candidatos = [p for p in candidatos if tiene_slot(p, keys_3dias)]
-                if candidatos:
-                    plomeros = candidatos
-                    break
+        plomeros, vistos = [], set()
 
-        # NIVEL 3 — cualquiera que atienda urgencias, sin importar agenda ni radio
-        # El plomero decide si puede ir
-        if not plomeros:
-            plomeros = plomero_repository.filtrar(
-                db,
-                genero            = genero_filtro,
-                atiende_urgencias = True,
-                solo_disponibles  = False,
-            )
-
-        # NIVEL 4 — cualquier plomero, sin ningún filtro
-        # Nunca devolver vacío
-        if not plomeros:
-            ids_ya = set()
-            for p in plomero_repository.filtrar(db, genero=genero_filtro, solo_disponibles=False):
-                if p.id_plomero not in ids_ya:
+        def _sumar(lista):
+            for p in lista:
+                if p.id_plomero not in vistos:
+                    vistos.add(p.id_plomero)
                     plomeros.append(p)
-                    ids_ya.add(p.id_plomero)
+
+        _sumar(inmediatos)
+        if len(plomeros) < 5:
+            _sumar(tres_dias)
+        if len(plomeros) < 5:
+            _sumar(universo)   # último recurso: que el plomero decida si puede ir
+
+        # Si NO hay ningún plomero de urgencias, plomeros queda vacío →
+        # el front muestra "no encontramos un profesional, intentá más tarde".
 
     # ─────────────────────────────────────────────────────────
     # NO URGENTE — búsqueda normal con radio progresivo
     # ─────────────────────────────────────────────────────────
     else:
-        # Radio progresivo: 5 → 15 → sin límite
-        plomeros = []
-        for radio in [5.0, 15.0, None]:
-            plomeros = plomero_repository.filtrar(
-                db,
-                genero      = genero_filtro,
-                lat_usuario = lat_usuario,
-                lon_usuario = lon_usuario,
-                radio_km    = radio,
-            )
-            if plomeros:
-                break
+        # Universo completo (con filtro de género), SIN recortar por radio:
+        # el orden por tramos prioriza la cercanía y la amplía solo si hace falta
+        # para completar 5 (mismo criterio que en urgencias).
+        plomeros = plomero_repository.filtrar(db, genero=genero_filtro)
 
     # ─────────────────────────────────────────────────────────
     # DEDUPLICAR Y ORDENAR
     # ─────────────────────────────────────────────────────────
+    # Excluir a los ya contactados/rechazados ANTES de recortar a 5, así el
+    # resultado siempre se completa con el resto del pool (no quedan huecos).
+    excl = set(excluidos or [])
     vistos, unicos = set(), []
     for p in plomeros:
+        if p.id_plomero in excl:
+            continue
         if p.id_plomero not in vistos:
             vistos.add(p.id_plomero)
             unicos.append(p)
@@ -454,10 +439,31 @@ def sugerir(
         if d < 10: return 1
         return 2
 
+    # Prioridad: 1° cercanía por tramos (<5 / 5–10 / >10 km), 2° relevancia
+    # (especialidad + disponible ahora en urgencias), 3° puntuación, 4° distancia exacta.
     resultado = sorted(
         unicos,
-        key=lambda p: (-relevancia(p), tramo(p), -p.puntuacion, dist(p))
+        key=lambda p: (tramo(p), -relevancia(p), -p.puntuacion, dist(p))
     )[:5]
+
+    # Franjas ya ocupadas por fecha (trabajos en curso) → "YYYY-MM-DD_franja".
+    # El frontend usa esto para no ofrecer una franja ya reservada de ese plomero.
+    ocupados_map = {}
+    ids = [p.id_plomero for p in resultado]
+    if ids:
+        reservas = (
+            db.query(Solicitud)
+            .filter(
+                Solicitud.id_plomero.in_(ids),
+                Solicitud.estado.in_([EstadoSolicitud.EN_PROGRESO, EstadoSolicitud.EN_CAMINO]),
+                Solicitud.fecha_trabajo.isnot(None),
+            )
+            .all()
+        )
+        for r in reservas:
+            ft = r.fecha_trabajo
+            clave = f"{ft.strftime('%Y-%m-%d')}_{_franja_de_hora(ft.hour)}"
+            ocupados_map.setdefault(r.id_plomero, []).append(clave)
 
     # ─────────────────────────────────────────────────────────
     # FORMATEAR RESPUESTA
@@ -484,6 +490,7 @@ def sugerir(
                 if es_urgente and p.agenda
                 else p.agenda or {}
             ),
+            "ocupados":          ocupados_map.get(p.id_plomero, []),
         }
         for p in resultado
     ]

@@ -51,6 +51,17 @@ export default function ChatWidget({ conversaciones = [] }) {
     }
   }, [abierto, activa, conversaciones]);
 
+  // Permite abrir el chat desde otros lados (ej. botón "coordinar para reprogramar")
+  useEffect(() => {
+    const handler = (e) => {
+      setAbierto(true);
+      const id = e.detail?.idSolicitud;
+      if (id) setActiva(id);
+    };
+    window.addEventListener("plomeria:abrir-chat", handler);
+    return () => window.removeEventListener("plomeria:abrir-chat", handler);
+  }, []);
+
   // Si la conversación activa deja de existir (trabajo terminó/canceló), salir
   useEffect(() => {
     if (activa && !conversaciones.some(c => c.id_solicitud === activa)) {

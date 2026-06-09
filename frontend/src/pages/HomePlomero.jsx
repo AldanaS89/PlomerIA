@@ -356,9 +356,11 @@ function formatearTurno(turnoStr) {
   } catch { return turnoStr.replace(/_/g, " "); }
 }
 
-function ScreenActivos({ activos, onEnCamino, onCompletar, onCancelar, loading }) {
+function ScreenActivos({ activos, onEnCamino, onCompletar, onCancelar, onReprogramar, loading }) {
   const [loadingId,  setLoadingId]  = useState(null);
   const [cancelando, setCancelando] = useState(null);
+  const [reprog,     setReprog]     = useState(null);  // id con form de reprogramar abierto
+  const [nuevaFecha, setNuevaFecha] = useState("");
 
   if (loading) return (
     <div style={{ display:"flex", justifyContent:"center", padding:"80px" }}>
@@ -499,15 +501,14 @@ function ScreenActivos({ activos, onEnCamino, onCompletar, onCancelar, loading }
 
             {/* Botones de acción según estado */}
             {esEnProgreso && (() => {
-              const esDiaDelTurno = (() => {
-                // Habilitado el día del trabajo o después (no antes)
-                if (t.fecha_trabajo) {
-                  const dia = new Date(t.fecha_trabajo); dia.setHours(0, 0, 0, 0);
-                  const hoy = new Date(); hoy.setHours(0, 0, 0, 0);
-                  return hoy >= dia;
-                }
-                return true; // sin fecha definida, no bloqueamos
-              })();
+              // "En camino" se habilita desde 2 h antes del horario acordado.
+              let puede = true, desdeTxt = "";
+              if (t.fecha_trabajo) {
+                const ft = new Date(t.fecha_trabajo);
+                const habilita = new Date(ft.getTime() - 2 * 60 * 60 * 1000);
+                puede = new Date() >= habilita;
+                desdeTxt = habilita.toLocaleString("es-AR", { weekday:"short", hour:"2-digit", minute:"2-digit" });
+              }
               return (
                 <button
                   onClick={async () => {
@@ -515,43 +516,97 @@ function ScreenActivos({ activos, onEnCamino, onCompletar, onCancelar, loading }
                     await onEnCamino(t.id_solicitud);
                     setLoadingId(null);
                   }}
-                  disabled={!!loadingId || !esDiaDelTurno}
-                  title={!esDiaDelTurno ? "Solo podés marcar en camino el día del trabajo" : ""}
+                  disabled={!!loadingId || !puede}
+                  title={!puede ? `Disponible desde ${desdeTxt} (2 h antes del turno)` : ""}
                   style={{ width:"100%",
-                    background: esDiaDelTurno
-                      ? "linear-gradient(135deg,#3B82F6,#2563EB)" : "#E2E8F0",
+                    background: puede ? "linear-gradient(135deg,#3B82F6,#2563EB)" : "#E2E8F0",
                     border:"none", borderRadius:"14px", padding:"13px",
                     fontFamily:"'DM Sans',sans-serif", fontWeight:"800", fontSize:"14px",
-                    color: esDiaDelTurno ? "#fff" : "#94A3B8",
-                    cursor: esDiaDelTurno ? "pointer" : "not-allowed",
+                    color: puede ? "#fff" : "#94A3B8",
+                    cursor: puede ? "pointer" : "not-allowed",
                     marginBottom:"10px",
-                    boxShadow: esDiaDelTurno ? "0 4px 14px rgba(59,130,246,0.3)" : "none",
+                    boxShadow: puede ? "0 4px 14px rgba(59,130,246,0.3)" : "none",
                     display:"flex", alignItems:"center", justifyContent:"center", gap:"8px",
                   }}>
                   {loadingId === "camino_" + t.id_solicitud ? <Spinner size={16}/> : null}
-                  🚗 {esDiaDelTurno ? "Voy en camino" : "Disponible el día del trabajo"}
+                  🚗 {puede ? "Voy en camino" : `Disponible ${desdeTxt}`}
                 </button>
               );
             })()}
 
-            {esEnCamino && (
+            {esEnCamino && (() => {
+              // "Finalizar" se habilita a partir de la hora del turno.
+              let puede = true, horaTxt = "";
+              if (t.fecha_trabajo) {
+                const ft = new Date(t.fecha_trabajo);
+                puede = new Date() >= ft;
+                horaTxt = ft.toLocaleTimeString("es-AR", { hour:"2-digit", minute:"2-digit" });
+              }
+              return (
+                <button
+                  onClick={async () => {
+                    if (!puede) return;
+                    setLoadingId("completar_" + t.id_solicitud);
+                    await onCompletar(t.id_solicitud);
+                    setLoadingId(null);
+                  }}
+                  disabled={!!loadingId || !puede}
+                  title={!puede ? `Podés finalizar a partir de las ${horaTxt}` : ""}
+                  style={{ width:"100%",
+                    background: puede ? "linear-gradient(135deg,#22C55E,#16A34A)" : "#E2E8F0",
+                    border:"none", borderRadius:"14px", padding:"13px",
+                    fontFamily:"'DM Sans',sans-serif", fontWeight:"800", fontSize:"14px",
+                    color: puede ? "#fff" : "#94A3B8", cursor: puede ? "pointer" : "not-allowed",
+                    marginBottom:"10px",
+                    boxShadow: puede ? "0 4px 14px rgba(34,197,94,0.3)" : "none",
+                    display:"flex", alignItems:"center", justifyContent:"center", gap:"8px",
+                  }}>
+                  {loadingId === "completar_" + t.id_solicitud ? <Spinner size={16}/> : null}
+                  🏁 {puede ? "Terminé el trabajo" : `Finalizar disponible ${horaTxt}`}
+                </button>
+              );
+            })()}
+
+            {/* Reprogramar horario (si lo acuerdan por chat) */}
+            {reprog === t.id_solicitud ? (
+              <div style={{ marginBottom:"10px", background:"#F8FAFC", border:"1px solid #E2E8F0",
+                borderRadius:"10px", padding:"12px" }}>
+                <div style={{ fontFamily:"'DM Sans',sans-serif", fontSize:"12px", fontWeight:"700",
+                  color:"#475569", marginBottom:"6px" }}>Nueva fecha y hora del trabajo</div>
+                <input type="datetime-local" value={nuevaFecha} onChange={e=>setNuevaFecha(e.target.value)}
+                  style={{ width:"100%", border:"1.5px solid #E2E8F0", borderRadius:"8px", padding:"8px",
+                    fontFamily:"'DM Sans',sans-serif", fontSize:"13px", marginBottom:"8px", boxSizing:"border-box" }} />
+                <div style={{ display:"flex", gap:"8px" }}>
+                  <button onClick={()=>{ setReprog(null); setNuevaFecha(""); }} style={{
+                    background:"#fff", border:"1px solid #E2E8F0", borderRadius:"8px", padding:"8px 12px",
+                    fontFamily:"'DM Sans',sans-serif", fontSize:"12px", color:"#475569", cursor:"pointer", fontWeight:"600" }}>
+                    Cancelar
+                  </button>
+                  <button disabled={!nuevaFecha}
+                    onClick={async ()=>{ await onReprogramar(t.id_solicitud, nuevaFecha); setReprog(null); setNuevaFecha(""); }}
+                    style={{ flex:1, background: nuevaFecha ? "linear-gradient(135deg,#3B82F6,#2563EB)" : "#E2E8F0",
+                      color: nuevaFecha ? "#fff" : "#94A3B8", border:"none", borderRadius:"8px", padding:"8px",
+                      fontFamily:"'DM Sans',sans-serif", fontWeight:"700", fontSize:"13px",
+                      cursor: nuevaFecha ? "pointer" : "not-allowed" }}>
+                    Guardar nuevo horario
+                  </button>
+                </div>
+              </div>
+            ) : t.comunicacion_ok ? (
+              <button onClick={()=>{ setReprog(t.id_solicitud); setNuevaFecha(""); }} style={{
+                marginBottom:"10px", width:"100%", background:"transparent", border:"1px solid #BFDBFE",
+                borderRadius:"10px", padding:"9px", fontFamily:"'DM Sans',sans-serif", fontSize:"12px",
+                color:"#1D4ED8", cursor:"pointer", fontWeight:"600" }}>
+                🗓️ Reprogramar horario
+              </button>
+            ) : (
               <button
-                onClick={async () => {
-                  setLoadingId("completar_" + t.id_solicitud);
-                  await onCompletar(t.id_solicitud);
-                  setLoadingId(null);
-                }}
-                disabled={!!loadingId}
-                style={{ width:"100%",
-                  background:"linear-gradient(135deg,#22C55E,#16A34A)",
-                  border:"none", borderRadius:"14px", padding:"13px",
-                  fontFamily:"'DM Sans',sans-serif", fontWeight:"800", fontSize:"14px",
-                  color:"#fff", cursor:"pointer", marginBottom:"10px",
-                  boxShadow:"0 4px 14px rgba(34,197,94,0.3)",
-                  display:"flex", alignItems:"center", justifyContent:"center", gap:"8px",
-                }}>
-                {loadingId === "completar_" + t.id_solicitud ? <Spinner size={16}/> : null}
-                🏁 Terminé el trabajo
+                onClick={() => window.dispatchEvent(new CustomEvent("plomeria:abrir-chat", { detail: { idSolicitud: t.id_solicitud } }))}
+                style={{ marginBottom:"10px", width:"100%", background:"#F8FAFC",
+                  border:"1px dashed #CBD5E1", borderRadius:"10px", padding:"9px",
+                  fontFamily:"'DM Sans',sans-serif", fontSize:"11px", color:"#64748B",
+                  textAlign:"center", fontWeight:"600", cursor:"pointer" }}>
+                🗓️💬 Para reprogramar, coordiná primero por el chat (tocá acá para escribirle)
               </button>
             )}
 
@@ -1028,21 +1083,61 @@ function ScreenHistorial({ historial, loading, puntuacionPerfil, totalTrabajosPe
     </div>
   );
 
+  // ── Finanzas / historial: TODO se calcula con los trabajos REALES (terminados),
+  //    así los stats de arriba, la facturación por mes y el listado detallado
+  //    SIEMPRE coinciden. La plata es estimada (cada trabajo = su boleta, o el
+  //    ticket promedio si no tiene). ──
+  const COMISION = 0.15;
+  const TICKET = 25000;
+  const META_MENSUAL = 500000;
+  const ahora = new Date();
+  const trabajos = terminados.length || totalTrabajosPerfil || 0;
+
+  const alta = fechaRegistroPerfil ? new Date(fechaRegistroPerfil) : null;
+  const altaValida = alta && !isNaN(alta.getTime());
+
+  const porMes = {};
+  const addMes = (d, monto, count) => {
+    if (isNaN(d.getTime())) return;
+    const k = `${d.getFullYear()}-${String(d.getMonth()).padStart(2, "0")}`;
+    porMes[k] = porMes[k] || { count: 0, total: 0, y: d.getFullYear(), m: d.getMonth() };
+    porMes[k].total += monto; porMes[k].count += count;
+  };
+  terminados.forEach(t => addMes(new Date(t.fecha_trabajo || t.fecha), (t.total_boleta || TICKET), 1));
+
+  const filas = Object.values(porMes).sort((a, b) => (b.y - a.y) || (b.m - a.m)).slice(0, 6).reverse();
+  const maxTotal = Math.max(1, ...filas.map(f => f.total));
+  const kMes = `${ahora.getFullYear()}-${String(ahora.getMonth()).padStart(2, "0")}`;
+  const pasado = new Date(ahora.getFullYear(), ahora.getMonth() - 1, 1);
+  const kPasado = `${pasado.getFullYear()}-${String(pasado.getMonth()).padStart(2, "0")}`;
+  const realMes = porMes[kMes]?.total || 0;
+  const realPasado = porMes[kPasado]?.total || 0;
+  const variacion = realPasado > 0 ? Math.round((realMes - realPasado) / realPasado * 100) : null;
+  const realTotal = terminados.reduce((a, t) => a + (t.total_boleta || TICKET), 0);
+  const brutoAcumulado = realTotal;
+  const MESES_ES = ["enero","febrero","marzo","abril","mayo","junio","julio","agosto","septiembre","octubre","noviembre","diciembre"];
+  const miembroDesde = altaValida ? `${MESES_ES[alta.getMonth()]} ${alta.getFullYear()}` : null;
+  const comision = brutoAcumulado * COMISION;
+  const neto = brutoAcumulado - comision;
+  const badge = trabajos >= 100 ? { t: "Plomero Pro", e: "🏆" }
+    : trabajos >= 50 ? { t: "Destacado", e: "⭐" }
+    : trabajos >= 10 ? { t: "En camino", e: "🚀" } : { t: "Nuevo", e: "🌱" };
+  const progreso = Math.min(100, Math.round(realMes / META_MENSUAL * 100));
+  const $ = (n) => "$" + Number(Math.round(n)).toLocaleString("es-AR");
+  const trabajosEsteMes = porMes[kMes]?.count || 0;
+
   return (
     <div style={{ maxWidth:"640px", margin:"0 auto", padding:"28px 24px" }}>
       <h1 style={{ fontFamily:"'DM Sans',sans-serif", fontWeight:"800", fontSize:"22px",
         color:"#0F172A", margin:"0 0 6px" }}>Historial de trabajos</h1>
       <p style={{ fontFamily:"'DM Sans',sans-serif", fontSize:"14px",
-        color:"#64748B", margin:"0 0 20px" }}>{terminados.length} trabajos finalizados</p>
+        color:"#64748B", margin:"0 0 20px" }}>{trabajos} trabajos finalizados</p>
 
       <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:"12px", marginBottom:"24px" }}>
         {[
-          { label:"Trabajos",  value:terminados.length, color:"#3B82F6" },
+          { label:"Trabajos",  value:trabajos, color:"#3B82F6" },
           { label:"Promedio",  value:`⭐ ${promedio}`,  color:"#F59E0B" },
-          { label:"Este mes",  value:terminados.filter(t => {
-              const d = new Date(t.fecha); const n = new Date();
-              return d.getMonth()===n.getMonth() && d.getFullYear()===n.getFullYear();
-            }).length, color:"#22C55E" },
+          { label:"Este mes",  value:trabajosEsteMes, color:"#22C55E" },
         ].map(s => (
           <div key={s.label} style={{ background:"#fff", borderRadius:"14px",
             border:"1.5px solid #F1F5F9", padding:"16px", textAlign:"center" }}>
@@ -1053,63 +1148,7 @@ function ScreenHistorial({ historial, loading, puntuacionPerfil, totalTrabajosPe
         ))}
       </div>
 
-      {terminados.length > 0 && (() => {
-        const COMISION = 0.15;        // lo que el plomero paga a la app por boleta
-        const TICKET = 25000;         // ticket promedio simulado para el historial
-        const META_MENSUAL = 500000;
-        const ahora = new Date();
-        const trabajos = totalTrabajosPerfil || terminados.length;
-
-        // Antigüedad en la app (fecha_registro)
-        const alta = fechaRegistroPerfil ? new Date(fechaRegistroPerfil) : null;
-        const altaValida = alta && !isNaN(alta.getTime());
-        const mesesActivo = altaValida
-          ? Math.max(1, (ahora.getFullYear() - alta.getFullYear()) * 12 + (ahora.getMonth() - alta.getMonth()) + 1)
-          : 1;
-
-        // Serie mensual: historial SIMULADO repartido desde el alta + boletas REALES encima
-        const porMes = {};
-        const addMes = (d, monto, real) => {
-          if (isNaN(d.getTime())) return;
-          const k = `${d.getFullYear()}-${String(d.getMonth()).padStart(2, "0")}`;
-          porMes[k] = porMes[k] || { count: 0, total: 0, y: d.getFullYear(), m: d.getMonth() };
-          porMes[k].total += monto;
-          if (real) porMes[k].count += 1;
-        };
-        const simMensual = (trabajos * TICKET) / mesesActivo;
-        const baseMeses = Math.min(mesesActivo, 12);
-        for (let i = 0; i < baseMeses; i++) {
-          const d = new Date(ahora.getFullYear(), ahora.getMonth() - i, 1);
-          const variacion = 0.8 + (((d.getMonth() + 3) % 5) * 0.1); // leve variación estética
-          addMes(d, Math.round(simMensual * variacion), false);
-        }
-        terminados.forEach(t => addMes(new Date(t.fecha_trabajo || t.fecha), (t.total_boleta || 0), true));
-
-        const filas = Object.values(porMes)
-          .sort((a, b) => (b.y - a.y) || (b.m - a.m)).slice(0, 6).reverse();
-        const maxTotal = Math.max(1, ...filas.map(f => f.total));
-
-        const kMes = `${ahora.getFullYear()}-${String(ahora.getMonth()).padStart(2, "0")}`;
-        const pasado = new Date(ahora.getFullYear(), ahora.getMonth() - 1, 1);
-        const kPasado = `${pasado.getFullYear()}-${String(pasado.getMonth()).padStart(2, "0")}`;
-        const realMes = porMes[kMes]?.total || 0;
-        const realPasado = porMes[kPasado]?.total || 0;
-        const variacion = realPasado > 0 ? Math.round((realMes - realPasado) / realPasado * 100) : null;
-
-        const realTotal = terminados.reduce((a, t) => a + (t.total_boleta || 0), 0);
-        // Simulamos el historial de quienes ya venían usando la app
-        const brutoAcumulado = trabajos * TICKET + realTotal;
-        const MESES_ES = ["enero","febrero","marzo","abril","mayo","junio","julio","agosto","septiembre","octubre","noviembre","diciembre"];
-        const miembroDesde = altaValida ? `${MESES_ES[alta.getMonth()]} ${alta.getFullYear()}` : null;
-        const comision = brutoAcumulado * COMISION;
-        const neto = brutoAcumulado - comision;
-
-        const badge = trabajos >= 100 ? { t: "Plomero Pro", e: "🏆" }
-          : trabajos >= 50 ? { t: "Destacado", e: "⭐" }
-          : trabajos >= 10 ? { t: "En camino", e: "🚀" } : { t: "Nuevo", e: "🌱" };
-        const progreso = Math.min(100, Math.round(realMes / META_MENSUAL * 100));
-        const $ = (n) => "$" + Number(Math.round(n)).toLocaleString("es-AR");
-
+      {(() => {
         return (
           <>
             {/* Tarjeta destacada de ganancias */}
@@ -1404,6 +1443,14 @@ export default function HomePlomero({ onLogout }) {
     } catch (e) { console.error("Error cancelando:", e); }
   };
 
+  const handleReprogramar = async (idSolicitud, fechaISO) => {
+    if (!fechaISO) return;
+    try {
+      await api.patch(`/solicitudes/${idSolicitud}/reprogramar`, { fecha_trabajo: fechaISO });
+      await cargarSolicitudes();
+    } catch (e) { console.error("Error reprogramando:", e); }
+  };
+
   const handleLogout = () => { logout(); onLogout(); };
 
   const conversacionesActivas = activos.map(a => ({
@@ -1433,7 +1480,8 @@ export default function HomePlomero({ onLogout }) {
       {screen==="activos" && (
         <ScreenActivos
           activos={activos} onEnCamino={handleEnCamino}
-          onCompletar={handleCompletar} onCancelar={handleCancelar} loading={loading}
+          onCompletar={handleCompletar} onCancelar={handleCancelar}
+          onReprogramar={handleReprogramar} loading={loading}
         />
       )}
       {screen==="agenda" && <ScreenAgenda activos={activos} historial={historial}/>}
