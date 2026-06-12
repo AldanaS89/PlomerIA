@@ -315,6 +315,29 @@ FRANJAS       = ["manana", "tarde", "noche"]
 FRANJA_INICIO = {"manana": 8, "tarde": 13, "noche": 18}
 
 
+def ordenar_por_cercania_y_puntuacion(plomeros, dist_fn, relevancia_fn, limite=5):
+    """
+    Ordena los plomeros por TRAMOS de cercanía y, dentro de cada tramo, por
+    relevancia y puntuación. Tramos: <5km (0), 5–10km (1), >10km (2).
+    Prioridad: 1° cercanía, 2° relevancia, 3° puntuación, 4° distancia exacta.
+
+    Función PURA (sin DB ni red): se le pasan `dist_fn(p)` y `relevancia_fn(p)`,
+    para poder probarla de forma unitaria con objetos simulados.
+    """
+    def tramo(p):
+        d = dist_fn(p)
+        if d < 5:
+            return 0
+        if d < 10:
+            return 1
+        return 2
+
+    return sorted(
+        plomeros,
+        key=lambda p: (tramo(p), -relevancia_fn(p), -p.puntuacion, dist_fn(p)),
+    )[:limite]
+
+
 def sugerir(
     db:               Session,
     descripcion:      str,
@@ -430,21 +453,8 @@ def sugerir(
             vistos.add(p.id_plomero)
             unicos.append(p)
 
-    # Ordenar por TRAMOS de cercanía y, dentro de cada tramo, por puntuación.
-    # Tramos: <5km (0), 5–10km (1), >10km (2). Así primero entran los más
-    # cercanos y mejor puntuados, ampliando el radio solo si hace falta.
-    def tramo(p):
-        d = dist(p)
-        if d < 5:  return 0
-        if d < 10: return 1
-        return 2
-
-    # Prioridad: 1° cercanía por tramos (<5 / 5–10 / >10 km), 2° relevancia
-    # (especialidad + disponible ahora en urgencias), 3° puntuación, 4° distancia exacta.
-    resultado = sorted(
-        unicos,
-        key=lambda p: (tramo(p), -relevancia(p), -p.puntuacion, dist(p))
-    )[:5]
+    # Orden por cercanía + relevancia + puntuación (función pura, ya testeada).
+    resultado = ordenar_por_cercania_y_puntuacion(unicos, dist, relevancia, limite=5)
 
     # Franjas ya ocupadas por fecha (trabajos en curso) → "YYYY-MM-DD_franja".
     # El frontend usa esto para no ofrecer una franja ya reservada de ese plomero.

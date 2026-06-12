@@ -3,6 +3,7 @@ import { useState } from 'react'
 import api from '../services/api'
 import { useAuthStore } from '../store/authStore'
 import DireccionConMapa from '../components/DireccionConMapa'
+import TerminosCondiciones from '../components/TerminosCondiciones'
 
 const LOCALIDADES = [
   "Adrogué","Burzaco","Claypole","Don Orione","Glew","José Mármol",
@@ -21,6 +22,8 @@ export default function Registro({ onNav }) {
   const [error,    setError]    = useState('')
   const [cargando, setCargando] = useState(false)
   const [showPass, setShowPass] = useState(false)
+  const [acepta,   setAcepta]   = useState(false)
+  const [verTyC,   setVerTyC]   = useState(false)
 
   const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }))
 
@@ -36,6 +39,8 @@ export default function Registro({ onNav }) {
       return setError('Ingresá tu dirección')
     if (!form.localidad)
       return setError('Seleccioná tu localidad')
+    if (!acepta)
+      return setError('Tenés que aceptar las Bases y Condiciones para registrarte')
 
     setCargando(true)
     try {
@@ -169,9 +174,26 @@ export default function Registro({ onNav }) {
             </div>
           )}
 
+          {/* Bases y Condiciones — obligatorio para registrarse */}
+          <label className="flex items-start gap-2 text-sm text-slate-600 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={acepta}
+              onChange={(e) => setAcepta(e.target.checked)}
+              className="mt-0.5 w-4 h-4 accent-blue-600"
+            />
+            <span>
+              Leí y acepto las{' '}
+              <button type="button" onClick={() => setVerTyC(true)}
+                className="text-blue-600 font-semibold hover:underline">
+                Bases y Condiciones
+              </button>.
+            </span>
+          </label>
+
           <button
-            type="submit" disabled={cargando}
-            className="w-full font-black py-4 rounded-2xl transition-all shadow-lg uppercase text-xs tracking-[0.2em] bg-blue-600 text-white hover:bg-blue-700 disabled:bg-slate-200 disabled:text-slate-400"
+            type="submit" disabled={cargando || !acepta}
+            className="w-full font-black py-4 rounded-2xl transition-all shadow-lg uppercase text-xs tracking-[0.2em] bg-blue-600 text-white hover:bg-blue-700 disabled:bg-slate-200 disabled:text-slate-400 disabled:cursor-not-allowed"
           >
             {cargando ? 'Registrando...' : 'Crear cuenta →'}
           </button>
@@ -185,6 +207,8 @@ export default function Registro({ onNav }) {
           </p>
         </form>
       </div>
+
+      <TerminosCondiciones open={verTyC} onClose={() => setVerTyC(false)} />
     </div>
   )
 }

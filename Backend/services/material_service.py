@@ -13,6 +13,17 @@ ESTADOS_EDITABLES = {
 }
 
 
+def _validar_item(descripcion, cantidad, precio):
+    """Valida un ítem de boleta. Lanza HTTPException 400 si algo está mal.
+    Función pura (sin DB) → fácil de testear de forma unitaria."""
+    if not (descripcion or "").strip():
+        raise HTTPException(status_code=400, detail="La descripción del material es obligatoria")
+    if cantidad is None or cantidad <= 0:
+        raise HTTPException(status_code=400, detail="La cantidad debe ser mayor a 0")
+    if precio is None or precio < 0:
+        raise HTTPException(status_code=400, detail="El precio no puede ser negativo")
+
+
 def _serializar(db, id_solicitud):
     items = material_repository.listar_por_solicitud(db, id_solicitud)
     total = material_repository.total_por_solicitud(db, id_solicitud)
@@ -40,14 +51,14 @@ def agregar(db, id_solicitud, datos, id_plomero):
         raise HTTPException(status_code=403, detail="No autorizado")
     if solicitud.estado not in ESTADOS_EDITABLES:
         raise HTTPException(status_code=400, detail="La boleta solo se edita mientras el trabajo está en curso")
-    if not (datos.descripcion or "").strip():
-        raise HTTPException(status_code=400, detail="La descripción del material es obligatoria")
+
+    _validar_item(datos.descripcion, datos.cantidad, datos.precio)
 
     item = MaterialItem(
         id_solicitud=id_solicitud,
         descripcion=datos.descripcion.strip(),
-        cantidad=datos.cantidad or 1.0,
-        precio=datos.precio or 0.0,
+        cantidad=datos.cantidad,
+        precio=datos.precio,
     )
     material_repository.crear(db, item)
     return _serializar(db, id_solicitud)

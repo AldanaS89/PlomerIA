@@ -3,6 +3,7 @@ import api from "../services/api";           // axios instance con interceptor d
 import { useAuthStore } from "../store/authStore"; // zustand store
 import ChatWidget from "../components/ChatWidget";
 import BoletaMateriales from "../components/BoletaMateriales"; // chat flotante cliente/plomero
+import UserBadge from "../components/UserBadge";
 
 // ─── CONSTANTS ───────────────────────────────────────────────────────────────
 
@@ -151,10 +152,8 @@ function Header({ screen, onNav, notifCount, onLogout, user }) {
             Plomer<span style={{ color: "#38BDF8" }}>IA</span>
           </span>
         </div>
-        <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-          <span style={{ color: "#94A3B8", fontSize: "13px", fontFamily: "'DM Sans',sans-serif" }}>
-            {user?.nombre}
-          </span>
+        <div style={{ display: "flex", alignItems: "center", gap: "14px" }}>
+          <UserBadge nombre={user?.nombre} apellido={user?.apellido} rol="Cliente" />
           <button onClick={onLogout} style={{
             background: "rgba(239,68,68,0.1)", border: "1px solid rgba(239,68,68,0.25)",
             borderRadius: "8px", padding: "5px 12px", color: "#FCA5A5",

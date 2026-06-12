@@ -15,6 +15,8 @@ def login(db: Session, email: str, password: str):
     user = usuario_repository.buscar_por_email(db, email)
 
     if user and verify_password(password, user.password_hash):
+        from services import moderacion
+        moderacion.reactivar_si_corresponde(db, user)   # reactivación automática si venció
         token = create_token({"sub": str(user.id_usuario), "tipo": "usuario"})
         return {
             "access_token": token,
@@ -34,6 +36,8 @@ def login(db: Session, email: str, password: str):
     plomero = plomero_repository.buscar_por_email(db, email)
 
     if plomero and verify_password(password, plomero.password_hash):
+        from services import moderacion
+        moderacion.reactivar_si_corresponde(db, plomero)   # reactivación automática si venció
         token = create_token({"sub": str(plomero.id_plomero), "tipo": "plomero"})
         return {
             "access_token":    token,

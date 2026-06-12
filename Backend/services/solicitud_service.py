@@ -10,6 +10,7 @@ from repositories import solicitud_plomero_repository
 from services.notificacion_service import notificacion_service
 from services import notificaciones_inapp
 from services import ia_service
+from services import moderacion
 from models.solicitud import EstadoSolicitud, Solicitud
 from models.bloqueHorario import BloqueHorario
 from schemas.solicitud import SolicitudCreate, SolicitudResponse
@@ -140,6 +141,12 @@ def _to_response(s):
             estado == "cancelada"
             and s.id_plomero is None
             and (s.intentos_reasignacion or 0) >= MAX_RONDAS_BUSQUEDA
+        ),
+        # Trabajo en curso cuya fecha YA pasó y sigue sin cerrar (pendiente de cierre).
+        "vencido_sin_cerrar": (
+            estado in {"en_progreso", "en_camino"}
+            and s.fecha_trabajo is not None
+            and s.fecha_trabajo.date() < datetime.now().date()
         ),
         "fecha_ultimo_envio": (
             s.fecha_ultimo_envio.isoformat()
@@ -331,10 +338,10 @@ def crear_solicitud(
         id_usuario
     )
 
-    if usuario and getattr(usuario, "suspendido", False):
+    if moderacion.esta_suspendido(db, usuario):
         raise HTTPException(
             status_code=403,
-            detail="Cuenta suspendida"
+            detail=moderacion.mensaje_suspension(usuario),
         )
     ids_plomeros = (
         datos.ids_plomeros_seleccionados or []
@@ -425,6 +432,21 @@ def crear_solicitud(
             solicitud.id_solicitud
         )
     )
+def _trabajo_vencido_sin_cerrar(db: Session, id_plomero: int):
+    """Devuelve un trabajo del plomero en curso cuya fecha YA pasó y sigue sin
+    cerrar (o None). Los trabajos futuros NO cuentan: solo bloquea el vencido."""
+    hoy = datetime.now().date()
+    for s in solicitud_repository.listar_por_plomero(db, id_plomero):
+        if (
+            s.id_plomero == id_plomero
+            and s.estado in (EstadoSolicitud.EN_PROGRESO, EstadoSolicitud.EN_CAMINO)
+            and s.fecha_trabajo
+            and s.fecha_trabajo.date() < hoy
+        ):
+            return s
+    return None
+
+
 # ─────────────────────────────────────────────
 # ACEPTAR
 # ─────────────────────────────────────────────
@@ -442,6 +464,25 @@ def aceptar(
         raise HTTPException(
             status_code=404,
             detail="Solicitud no encontrada"
+        )
+
+    # Un plomero suspendido no puede aceptar trabajos (con reactivación automática).
+    plomero_actor = plomero_repository.buscar_por_id(db, id_plomero)
+    if moderacion.esta_suspendido(db, plomero_actor):
+        raise HTTPException(
+            status_code=403,
+            detail=moderacion.mensaje_suspension(plomero_actor),
+        )
+
+    # No puede tomar un trabajo nuevo si tiene uno VENCIDO sin cerrar (fecha pasada).
+    # Los trabajos futuros ya aceptados no bloquean.
+    if _trabajo_vencido_sin_cerrar(db, id_plomero):
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Tenés un trabajo sin cerrar cuya fecha ya pasó. "
+                "Finalizalo y cargá la boleta antes de tomar uno nuevo."
+            ),
         )
 
     if solicitud.estado != EstadoSolicitud.PENDIENTE:
@@ -759,8 +800,8 @@ def crear_o_actualizar_borrador(db: Session, descripcion: str, id_usuario: int):
         return {"diagnostico": diagnostico, "borrador": None}
 
     usuario = usuario_repository.buscar_por_id(db, id_usuario)
-    if usuario and getattr(usuario, "suspendido", False):
-        raise HTTPException(status_code=403, detail="Cuenta suspendida")
+    if moderacion.esta_suspendido(db, usuario):
+        raise HTTPException(status_code=403, detail=moderacion.mensaje_suspension(usuario))
 
     # Reutilizamos el borrador abierto del usuario si ya existe (uno por vez).
     existente = next(
@@ -980,6 +1021,15 @@ def completar(
                 "Solo podés completar "
                 "un trabajo EN CAMINO"
             )
+        )
+
+    # La boleta es OBLIGATORIA: no se puede finalizar sin cargar al menos un ítem
+    # (materiales y/o mano de obra). Cada ítem ya fue validado al cargarse.
+    total_boleta = material_repository.total_por_solicitud(db, id_solicitud)
+    if not total_boleta or total_boleta <= 0:
+        raise HTTPException(
+            status_code=400,
+            detail="Cargá la boleta (materiales y mano de obra) antes de finalizar el trabajo.",
         )
 
     _resetear_cancelaciones_plomero(
@@ -1226,10 +1276,42 @@ def listar_por_usuario(db: Session, id_usuario: int):
     ]
 
 
+def _avisar_trabajos_vencidos(db, id_plomero, solicitudes):
+    """Notifica UNA vez por cada trabajo vencido sin cerrar (usa una bandera
+    para no repetir el aviso en cada refresco)."""
+    hoy = datetime.now().date()
+    hubo_cambio = False
+    for s in solicitudes:
+        if (
+            s.id_plomero == id_plomero
+            and s.estado in (EstadoSolicitud.EN_PROGRESO, EstadoSolicitud.EN_CAMINO)
+            and s.fecha_trabajo and s.fecha_trabajo.date() < hoy
+            and not s.aviso_cierre_enviado
+        ):
+            notificaciones_inapp.notificar_plomero(
+                db,
+                id_plomero=id_plomero,
+                tipo="pendiente_cierre",
+                titulo="⏰ Trabajo pendiente de cierre",
+                mensaje=(
+                    "Tenés un trabajo cuya fecha ya pasó y sigue sin cerrar. "
+                    "Finalizalo y cargá la boleta. No vas a poder tomar nuevos "
+                    "trabajos hasta cerrarlo."
+                ),
+                id_solicitud=s.id_solicitud,
+            )
+            s.aviso_cierre_enviado = True
+            hubo_cambio = True
+    if hubo_cambio:
+        db.commit()
+
+
 def listar_por_plomero(db: Session, id_plomero: int):
+    solicitudes = solicitud_repository.listar_por_plomero(db, id_plomero)
+    _avisar_trabajos_vencidos(db, id_plomero, solicitudes)
     return [
         _con_flags_calificacion(db, s, _to_response(s))
-        for s in solicitud_repository.listar_por_plomero(db, id_plomero)
+        for s in solicitudes
     ]
 
 

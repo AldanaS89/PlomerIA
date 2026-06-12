@@ -41,6 +41,10 @@ export default function BoletaMateriales({ idSolicitud, editable = false, diagno
     const d = (desc ?? concepto).trim();
     const v = parseFloat(valor ?? monto) || 0;
     if (!d) return;
+    if (v <= 0) {           // no se cargan montos negativos ni en cero
+      alert("El monto debe ser mayor a 0.");
+      return;
+    }
     setGuardando(true);
     try {
       const res = await api.post(`/boleta/${idSolicitud}`, { descripcion: d, cantidad: 1, precio: v });

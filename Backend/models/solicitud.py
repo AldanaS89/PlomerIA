@@ -7,6 +7,7 @@ from sqlalchemy import (
     Integer,
     String,
     Float,
+    Boolean,
     DateTime,
     ForeignKey,
     Enum as SQLEnum,
@@ -81,6 +82,9 @@ class Solicitud(Base):
 
     fecha_ultimo_envio    = Column(DateTime, nullable=True)
     intentos_reasignacion = Column(Integer,  default=0)
+    # True cuando ya se avisó al plomero que el trabajo está vencido sin cerrar
+    # (evita repetir la notificación en cada refresco).
+    aviso_cierre_enviado  = Column(Boolean,  default=False)
 
     # Plazo para calificar — se setea cuando el plomero marca TERMINADO
     # Vence a las 72hs. Si el actor no calificó antes, el sistema

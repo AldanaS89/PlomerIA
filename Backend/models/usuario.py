@@ -1,5 +1,5 @@
 # models/usuario.py
-from sqlalchemy import Column, Integer, String, Boolean, Float
+from sqlalchemy import Column, Integer, String, Boolean, Float, DateTime
 from database import Base
 from models.personaMixin import PersonaMixin, PersonaBase
 
@@ -12,6 +12,11 @@ class Usuario(PersonaMixin, Base):
     rol                        = Column(String, default="cliente")
     cancelaciones_consecutivas = Column(Integer, default=0)
     suspendido                 = Column(Boolean, default=False)
+    # Fecha hasta la que dura la suspensión (None = no suspendido / permanente).
+    # Cuando pasa esa fecha, la cuenta se reactiva sola al volver a usarla.
+    suspendido_hasta           = Column(DateTime, nullable=True)
+    # Cantidad de mensajes con groserías acumulados (a las 3 → suspensión).
+    mensajes_ofensivos         = Column(Integer, default=0)
 
     # Reputación del cliente — evaluada por los plomeros
     # Arranca en 5.0 por defecto (mismo criterio que el plomero)
