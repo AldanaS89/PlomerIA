@@ -1,0 +1,26 @@
+# El build context es la raíz del repo. Esto evita mandar al daemon de Docker
+# cosas pesadas o innecesarias (acelera el build y evita filtrar secretos/db).
+.git
+.gitignore
+
+# Apps móviles (Expo): no entran en este deploy web
+app_cliente
+app_plomero
+
+# Dependencias y artefactos de build
+**/node_modules
+**/dist
+**/.expo
+**/__pycache__
+**/.venv
+venv
+
+# Bases de datos locales y secretos (la DB va en volumen, los secretos por env_file)
+*.db
+**/.env
+
+# Docs / notas
+docs
+README.md
+DEPLOY.md
+sesion_01.md
