@@ -1047,6 +1047,12 @@ function ScreenHistorial({ historial, loading, puntuacionPerfil, totalTrabajosPe
           📍 {t.localidad_evento}
         </div>
       )}
+      {t.total_boleta > 0 && (
+        <div style={{ fontFamily:"'DM Sans',sans-serif", fontSize:"13px", color:"#15803D",
+          fontWeight:"800", marginTop:"6px" }}>
+          💰 Cobrado: ${Number(t.total_boleta).toLocaleString("es-AR")}
+        </div>
+      )}
       {t.calificacion > 0 && (
         <div style={{ display:"flex", alignItems:"center", gap:"8px", marginTop:"8px" }}>
           <Stars val={t.calificacion} size={14}/>

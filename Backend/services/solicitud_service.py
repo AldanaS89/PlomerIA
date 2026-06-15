@@ -356,10 +356,6 @@ def crear_solicitud(
             )
         )
 
-    print("TURNOS:", datos.turnos_por_plomero)
-    print("IDs seleccionados:", ids_plomeros)
-    print("Turno elegido:", turno_elegido)
-
     solicitud = solicitud_repository.crear(
         db,
         id_usuario,
@@ -379,12 +375,6 @@ def crear_solicitud(
         solicitud.fecha_trabajo = _calcular_fecha_trabajo(turno_elegido)
         db.commit()
         db.refresh(solicitud)
-
-    print(
-        "Turno guardado:",
-        solicitud.turno_solicitado
-    )
-    
 
     plomeros = []
 
@@ -1166,8 +1156,6 @@ def cancelar_plomero(
     id_solicitud: int,
     id_plomero: int
 ):
-    print("ENTRO A CANCELAR_PLOMERO")
-    print("ENTRO A CANCELAR_PLOMERO")
     solicitud = solicitud_repository.obtener_por_id(
         db,
         id_solicitud
@@ -1236,11 +1224,6 @@ def cancelar_plomero(
     solicitud_actualizada = solicitud_repository.obtener_por_id(
         db,
         id_solicitud
-    )
-    print(
-        "DESPUES:",
-        solicitud_actualizada.estado,
-        solicitud_actualizada.id_plomero
     )
 
     return {

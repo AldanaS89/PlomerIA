@@ -65,8 +65,6 @@ async def chat_ws(
         websocket
     )
 
-    print(f"WS conectado: {id_solicitud}")
-
     try:
 
         while True:
@@ -101,8 +99,6 @@ async def chat_ws(
             id_solicitud,
             websocket
         )
-
-        print(f"WS desconectado: {id_solicitud}")
 
     finally:
         db.close()
