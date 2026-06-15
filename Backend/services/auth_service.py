@@ -17,6 +17,8 @@ def login(db: Session, email: str, password: str):
     if user and verify_password(password, user.password_hash):
         from services import moderacion
         moderacion.reactivar_si_corresponde(db, user)   # reactivación automática si venció
+        if moderacion.esta_suspendido(db, user):        # sigue suspendido → no entra
+            raise HTTPException(status_code=403, detail=moderacion.mensaje_suspension(user))
         token = create_token({"sub": str(user.id_usuario), "tipo": "usuario"})
         return {
             "access_token": token,
@@ -38,6 +40,8 @@ def login(db: Session, email: str, password: str):
     if plomero and verify_password(password, plomero.password_hash):
         from services import moderacion
         moderacion.reactivar_si_corresponde(db, plomero)   # reactivación automática si venció
+        if moderacion.esta_suspendido(db, plomero):        # sigue suspendido → no entra
+            raise HTTPException(status_code=403, detail=moderacion.mensaje_suspension(plomero))
         token = create_token({"sub": str(plomero.id_plomero), "tipo": "plomero"})
         return {
             "access_token":    token,
@@ -64,6 +68,11 @@ def forgot_password(db: Session, email: str):
     if not user:
         return {"message": "Si el email existe, recibirás instrucciones"}
 
+    # Cuenta suspendida → no se permite recuperar/cambiar la clave.
+    from services import moderacion
+    if moderacion.esta_suspendido(db, user):
+        raise HTTPException(status_code=403, detail=moderacion.mensaje_suspension(user))
+
     token = secrets.token_urlsafe(32)
     if role == "usuario":
         usuario_repository.guardar_reset_token(db, user.id_usuario, token)
@@ -82,13 +91,18 @@ def forgot_password(db: Session, email: str):
 
 # ── RESET PASSWORD ────────────────────────────────────────────────────────────
 def reset_password(db: Session, token: str, new_password: str):
+    from services import moderacion
     user = usuario_repository.buscar_por_reset_token(db, token)
     if user:
+        if moderacion.esta_suspendido(db, user):
+            raise HTTPException(status_code=403, detail=moderacion.mensaje_suspension(user))
         usuario_repository.actualizar_password(db, user.id_usuario, hash_password(new_password))
         return {"message": "Contraseña actualizada correctamente"}
 
     plomero = plomero_repository.buscar_por_reset_token(db, token)
     if plomero:
+        if moderacion.esta_suspendido(db, plomero):
+            raise HTTPException(status_code=403, detail=moderacion.mensaje_suspension(plomero))
         plomero_repository.actualizar_password(db, plomero.id_plomero, hash_password(new_password))
         return {"message": "Contraseña actualizada correctamente"}
 

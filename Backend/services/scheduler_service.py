@@ -97,7 +97,7 @@ def _resolver_vencimiento(db, solicitud) -> None:
             id_cliente   = solicitud.id_usuario,
             autor_rol    = "sistema_vencimiento",
             estrellas    = ESTRELLAS_VENCIMIENTO,
-            comentario   = "Calificacion automatica — el cliente no califico dentro del plazo de 72hs.",
+            comentario   = "Calificacion automatica — el cliente no califico dentro del plazo de 48hs.",
         )
         _recalcular_promedio(db, solicitud, "plomero")
         logger.info(
@@ -113,7 +113,7 @@ def _resolver_vencimiento(db, solicitud) -> None:
             id_cliente   = solicitud.id_usuario,
             autor_rol    = "sistema_vencimiento",
             estrellas    = ESTRELLAS_VENCIMIENTO,
-            comentario   = "Calificacion automatica — el plomero no califico dentro del plazo de 72hs.",
+            comentario   = "Calificacion automatica — el plomero no califico dentro del plazo de 48hs.",
         )
         _recalcular_promedio(db, solicitud, "cliente")
         logger.info(

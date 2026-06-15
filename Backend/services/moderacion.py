@@ -8,7 +8,7 @@ reactivar cuentas" vive acá, separado del flujo de mensajería y de solicitudes
 
 - censurar(texto): reemplaza malas palabras por asteriscos (palabra completa).
 - registrar_mensaje_ofensivo(persona): suma una amonestación; a la 3ª suspende
-  la cuenta por 2 meses.
+  la cuenta (1 mes por groserías).
 - suspender(persona, dias): suspende con fecha de fin (reactivación automática).
 - reactivar_si_corresponde / esta_suspendido: levantan la suspensión sola cuando
   venció el plazo (sin necesidad de un proceso de fondo).
@@ -24,8 +24,8 @@ logger = logging.getLogger(__name__)
 
 # Parámetros de moderación
 AMONESTACIONES_PARA_SUSPENSION = 3      # a la 3ª grosería → suspensión
-DIAS_SUSPENSION_GROSERIAS      = 60     # 2 meses
-DIAS_SUSPENSION_CANCELACIONES  = 30     # 1 mes
+DIAS_SUSPENSION_GROSERIAS      = 30     # 1 mes por lenguaje inapropiado
+DIAS_SUSPENSION_CANCELACIONES  = 60     # 2 meses por 3 cancelaciones consecutivas
 
 # Lista de groserías (es-AR). En minúscula y sin acentos: el match normaliza.
 _GROSERIAS = {
@@ -109,17 +109,21 @@ def esta_suspendido(db, persona) -> bool:
 
 
 def mensaje_suspension(persona) -> str:
-    """Texto claro para mostrarle al usuario suspendido."""
+    """Texto claro para mostrarle al usuario suspendido, con días restantes."""
     hasta = getattr(persona, "suspendido_hasta", None)
     if hasta:
-        return f"Tu cuenta está suspendida hasta el {hasta.strftime('%d/%m/%Y')}."
+        dias = max(0, (hasta - datetime.now()).days + 1)
+        return (
+            f"Tu cuenta está suspendida hasta el {hasta.strftime('%d/%m/%Y')}. "
+            f"Faltan {dias} día{'s' if dias != 1 else ''} para poder volver a ingresar."
+        )
     return "Tu cuenta está suspendida."
 
 
 def registrar_mensaje_ofensivo(db, persona) -> tuple[bool, int]:
     """
     Suma una amonestación por groserías. Avisa en la 1ª y 2ª; a la 3ª suspende
-    la cuenta 2 meses.
+    la cuenta 1 mes.
     Devuelve (suspendido, numero_de_aviso) — numero_de_aviso es 1, 2 o 3.
     """
     if not persona:

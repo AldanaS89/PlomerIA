@@ -318,8 +318,8 @@ FRANJA_INICIO = {"manana": 8, "tarde": 13, "noche": 18}
 def ordenar_por_cercania_y_puntuacion(plomeros, dist_fn, relevancia_fn, limite=5):
     """
     Ordena los plomeros por TRAMOS de cercanía y, dentro de cada tramo, por
-    relevancia y puntuación. Tramos: <5km (0), 5–10km (1), >10km (2).
-    Prioridad: 1° cercanía, 2° relevancia, 3° puntuación, 4° distancia exacta.
+    puntuación y, como desempate, relevancia de oficio. Tramos: <5km (0), 5–10km (1), >10km (2).
+    Prioridad: 1° cercanía, 2° puntuación, 3° relevancia (oficio), 4° distancia exacta.
 
     Función PURA (sin DB ni red): se le pasan `dist_fn(p)` y `relevancia_fn(p)`,
     para poder probarla de forma unitaria con objetos simulados.
@@ -334,7 +334,7 @@ def ordenar_por_cercania_y_puntuacion(plomeros, dist_fn, relevancia_fn, limite=5
 
     return sorted(
         plomeros,
-        key=lambda p: (tramo(p), -relevancia_fn(p), -p.puntuacion, dist_fn(p)),
+        key=lambda p: (tramo(p), -p.puntuacion, -relevancia_fn(p), dist_fn(p)),
     )[:limite]
 
 
@@ -395,40 +395,15 @@ def sugerir(
     # URGENTE — 4 niveles de fallback, nunca devuelve vacío
     # ─────────────────────────────────────────────────────────
     if es_urgente:
-        # Universo: TODOS los que atienden urgencias (con filtro de género),
-        # SIN recortar por radio. La cercanía se respeta después al ordenar por
-        # tramos (<5 / 5–10 / >10 km), así SIEMPRE completamos hasta 5 si los hay,
-        # priorizando los más cercanos y mejor puntuados.
-        universo = plomero_repository.filtrar(
+        # Universo: TODOS los que atienden urgencias (con filtro de género).
+        # La prioridad (HOY antes que mañana) y el radio se aplican al ordenar.
+        # Si no hay ninguno, queda vacío → el front muestra "no encontramos…".
+        plomeros = plomero_repository.filtrar(
             db,
             genero            = genero_filtro,
             atiende_urgencias = True,
             solo_disponibles  = False,
         )
-
-        # Disponibilidad de más a menos estricta; acumulamos hasta llegar a 5.
-        inmediatos = [
-            p for p in universo
-            if p.disponible_ahora or tiene_slot(p, keys_urgencia)    # ya, o franja hoy/mañana
-        ]
-        tres_dias = [p for p in universo if tiene_slot(p, keys_3dias)]  # hasta pasado mañana
-
-        plomeros, vistos = [], set()
-
-        def _sumar(lista):
-            for p in lista:
-                if p.id_plomero not in vistos:
-                    vistos.add(p.id_plomero)
-                    plomeros.append(p)
-
-        _sumar(inmediatos)
-        if len(plomeros) < 5:
-            _sumar(tres_dias)
-        if len(plomeros) < 5:
-            _sumar(universo)   # último recurso: que el plomero decida si puede ir
-
-        # Si NO hay ningún plomero de urgencias, plomeros queda vacío →
-        # el front muestra "no encontramos un profesional, intentá más tarde".
 
     # ─────────────────────────────────────────────────────────
     # NO URGENTE — búsqueda normal con radio progresivo
@@ -453,13 +428,11 @@ def sugerir(
             vistos.add(p.id_plomero)
             unicos.append(p)
 
-    # Orden por cercanía + relevancia + puntuación (función pura, ya testeada).
-    resultado = ordenar_por_cercania_y_puntuacion(unicos, dist, relevancia, limite=5)
-
-    # Franjas ya ocupadas por fecha (trabajos en curso) → "YYYY-MM-DD_franja".
-    # El frontend usa esto para no ofrecer una franja ya reservada de ese plomero.
+    # Franjas ocupadas por fecha (trabajos en curso) de TODOS los candidatos →
+    # para saber su disponibilidad real antes de seleccionar.
     ocupados_map = {}
-    ids = [p.id_plomero for p in resultado]
+    ocupado_hoy_ids = set()   # plomeros con trabajo HOY o yendo en camino → no "ahora"
+    ids = [p.id_plomero for p in unicos]
     if ids:
         reservas = (
             db.query(Solicitud)
@@ -474,6 +447,40 @@ def sugerir(
             ft = r.fecha_trabajo
             clave = f"{ft.strftime('%Y-%m-%d')}_{_franja_de_hora(ft.hour)}"
             ocupados_map.setdefault(r.id_plomero, []).append(clave)
+            if r.estado == EstadoSolicitud.EN_CAMINO or ft.date() == ahora.date():
+                ocupado_hoy_ids.add(r.id_plomero)
+
+    # Disponibilidad REAL para una urgencia: "ahora" si está libre ya; si está
+    # ocupado hoy o sin hueco hoy, muestra su próximo hueco (hoy a la tarde/noche
+    # o mañana). Así el cliente elige con info real y no hay doble booking "ahora".
+    _FRANJA_TXT = {"manana": "a la mañana", "tarde": "a la tarde", "noche": "a la noche"}
+    hoy_str = ahora.strftime("%Y-%m-%d")
+
+    def _disp_urgencia(p):
+        libres_hoy = [
+            f for f in franjas_hoy
+            if (not p.agenda or p.agenda.get(f"{dia_hoy}_{f}"))
+            and f"{hoy_str}_{f}" not in ocupados_map.get(p.id_plomero, [])
+        ]
+        if p.disponible_ahora and p.id_plomero not in ocupado_hoy_ids:
+            return {"cuando": "ahora", "etiqueta": "Disponible ahora"}
+        if libres_hoy:
+            return {"cuando": "hoy", "etiqueta": f"Disponible hoy {_FRANJA_TXT[libres_hoy[0]]}"}
+        return {"cuando": "manana", "etiqueta": "Disponible mañana"}
+
+    # ── SELECCIÓN Y ORDEN ──
+    if es_urgente:
+        # PRIORIDAD: primero los que pueden venir HOY (ampliando el radio entre
+        # ellos por tramos); los de MAÑANA solo se traen si no se completan 5.
+        hoy_disp = [p for p in unicos if _disp_urgencia(p)["cuando"] != "manana"]
+        man_disp = [p for p in unicos if _disp_urgencia(p)["cuando"] == "manana"]
+        resultado = ordenar_por_cercania_y_puntuacion(hoy_disp, dist, relevancia, limite=5)
+        if len(resultado) < 5:
+            resultado = resultado + ordenar_por_cercania_y_puntuacion(
+                man_disp, dist, relevancia, limite=5 - len(resultado)
+            )
+    else:
+        resultado = ordenar_por_cercania_y_puntuacion(unicos, dist, relevancia, limite=5)
 
     # ─────────────────────────────────────────────────────────
     # FORMATEAR RESPUESTA
@@ -501,6 +508,8 @@ def sugerir(
                 else p.agenda or {}
             ),
             "ocupados":          ocupados_map.get(p.id_plomero, []),
+            # Para urgencias: cuándo puede ir realmente (ahora / hoy a tal franja / mañana).
+            "disp_urgencia":     _disp_urgencia(p) if es_urgente else None,
         }
         for p in resultado
     ]
@@ -511,35 +520,6 @@ def sugerir(
 # ─────────────────────────────
 
 def cambiar_disponibilidad(db: Session, id_plomero: int, disponible: bool):
-    plomero = plomero_repository.actualizar_disponibilidad(db, id_plomero, disponible)
-    if not plomero:
-        raise HTTPException(status_code=404, detail="Plomero no encontrado")
-    return {"mensaje": "Disponibilidad actualizada", "disponible_ahora": plomero.disponible_ahora}
-
-
-def obtener_por_id(db: Session, id: int):
-    plomero = plomero_repository.buscar_por_id(db, id)
-    if not plomero:
-        raise HTTPException(status_code=404, detail="Plomero no encontrado")
-    return PlomeroResponse.model_validate(plomero)
-
-
-def buscar_manual(
-    db: Session,
-    localidad: str | None = None,
-    genero: str | None = None,
-    especialidad: str | None = None,
-    atiende_urgencias: bool | None = None,
-    disponible_ahora: bool | None = None,
-):
-
-    return plomero_repository.obtener_filtrados(
-        db=db,
-        localidad=localidad,
-        genero=genero,
-        especialidades=especialidad,
-        atiende_urgencias=atiende_urgencias,
-        disponible_ahora=disponible_ahora,
-    )
-
-   
+    # Una cuenta suspendida no puede marcarse disponible.
+    from services import moderacion
+    p = p

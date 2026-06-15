@@ -58,7 +58,7 @@ export function useNotificaciones(token) {
   useEffect(() => {
     if (!token) return;
     poll();
-    const interval = setInterval(poll, 15000);
+    const interval = setInterval(poll, 8000);
     return () => clearInterval(interval);
   }, [token, poll]);
 
