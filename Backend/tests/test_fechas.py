@@ -37,11 +37,27 @@ def test_nunca_en_el_pasado():
         assert f.date() >= datetime.now().date()
 
 
-def test_hoy_es_hoy():
-    # CASO BORDE: si el turno cae en el día de HOY, debe ser HOY (no la semana que viene).
-    hoy_abbr = ABBR_POR_WEEKDAY[datetime.now().weekday()]
-    f = _calcular_fecha_trabajo(f"{hoy_abbr}_manana_10")
-    assert f.date() == datetime.now().date()
+def test_hoy_a_hora_futura_es_hoy():
+    # CASO BORDE: turno de HOY a una hora que TODAVÍA no pasó → debe quedar HOY.
+    ahora = datetime.now()
+    hora_futura = ahora.hour + 2
+    if hora_futura > 23:
+        return  # demasiado tarde para probar una hora futura de hoy
+    hoy_abbr = ABBR_POR_WEEKDAY[ahora.weekday()]
+    f = _calcular_fecha_trabajo(f"{hoy_abbr}_tarde_{hora_futura}")
+    assert f.date() == ahora.date()
+    assert f.hour == hora_futura
+
+
+def test_hoy_a_hora_pasada_va_a_la_proxima_semana():
+    # Turno de HOY pero a una hora YA pasada → NO se agenda en el pasado:
+    # se corre a la semana siguiente.
+    ahora = datetime.now()
+    if ahora.hour < 2:
+        return  # no hay una hora pasada razonable para probar
+    hoy_abbr = ABBR_POR_WEEKDAY[ahora.weekday()]
+    f = _calcular_fecha_trabajo(f"{hoy_abbr}_manana_{ahora.hour - 1}")
+    assert f.date() > ahora.date()
 
 
 def test_turno_invalido_devuelve_none():

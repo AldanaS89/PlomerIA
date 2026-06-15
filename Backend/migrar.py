@@ -29,12 +29,14 @@ with engine.connect() as conn:
 
         # Plazo para calificar — se llena cuando el plomero marca TERMINADO
         "ALTER TABLE solicitudes ADD COLUMN fecha_vencimiento_calificacion DATETIME",
+        "ALTER TABLE solicitudes ADD COLUMN fecha_en_camino DATETIME",
 
         # ── Columnas en plomeros ───────────────────────────────────────────────
         "ALTER TABLE plomeros ADD COLUMN cancelaciones_consecutivas INTEGER DEFAULT 0",
         "ALTER TABLE plomeros ADD COLUMN suspendido INTEGER DEFAULT 0",
         "ALTER TABLE plomeros ADD COLUMN suspendido_hasta DATETIME",
         "ALTER TABLE plomeros ADD COLUMN mensajes_ofensivos INTEGER DEFAULT 0",
+        "ALTER TABLE plomeros ADD COLUMN disponible_desde DATETIME",
 
         # ── Columnas en usuarios ───────────────────────────────────────────────
         "ALTER TABLE usuarios ADD COLUMN cancelaciones_consecutivas INTEGER DEFAULT 0",

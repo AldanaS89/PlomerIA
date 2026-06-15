@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import api from "../services/api";
+import { mostrarCartel } from "../utils/cartel";
 
 const fmt = (n) => "$" + Number(n || 0).toLocaleString("es-AR");
 
@@ -42,7 +43,7 @@ export default function BoletaMateriales({ idSolicitud, editable = false, diagno
     const v = parseFloat(valor ?? monto) || 0;
     if (!d) return;
     if (v <= 0) {           // no se cargan montos negativos ni en cero
-      alert("El monto debe ser mayor a 0.");
+      mostrarCartel("El monto debe ser mayor a 0.", "error");
       return;
     }
     setGuardando(true);

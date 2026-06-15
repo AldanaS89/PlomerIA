@@ -67,8 +67,13 @@ def _calcular_fecha_trabajo(turno: str):
     hoy = datetime.now()
     hoy_js = (hoy.weekday() + 1) % 7  # Python (lun=0) -> JS getDay (dom=0)
     delta = (objetivo - hoy_js) % 7   # 0 = hoy, si no, próximo día que coincide
-    fecha = hoy + timedelta(days=delta)
-    return fecha.replace(hour=hora, minute=0, second=0, microsecond=0)
+    fecha = (hoy + timedelta(days=delta)).replace(
+        hour=hora, minute=0, second=0, microsecond=0
+    )
+    # Si el horario de HOY ya pasó, no se agenda en el pasado: va a la próxima semana.
+    if fecha < hoy:
+        fecha = fecha + timedelta(days=7)
+    return fecha
 
 
 # ─── PENALIZACIONES ───────────────────────────────────────────────────────────
@@ -121,6 +126,11 @@ def _to_response(s):
         "fecha_trabajo": (
             s.fecha_trabajo.isoformat()
             if s.fecha_trabajo
+            else None
+        ),
+        "fecha_en_camino": (
+            s.fecha_en_camino.isoformat()
+            if s.fecha_en_camino
             else None
         ),
 
@@ -327,12 +337,6 @@ def crear_solicitud(
     datos: SolicitudCreate,
     id_usuario: int
 ):
-    
-    
-    diagnostico = ia_service.analizar_descripcion(
-        datos.descripcion_raw
-    )
-
     usuario = usuario_repository.buscar_por_id(
         db,
         id_usuario
@@ -343,6 +347,25 @@ def crear_solicitud(
             status_code=403,
             detail=moderacion.mensaje_suspension(usuario),
         )
+
+    # No se permite enviar un pedido con lenguaje ofensivo: se rechaza (no se crea
+    # la solicitud) y se suma una amonestación. A la 3ª, suspende la cuenta.
+    _cens, _hubo = moderacion.censurar(datos.descripcion_raw)
+    if _hubo:
+        _susp, _aviso = moderacion.registrar_mensaje_ofensivo(db, usuario)
+        if _susp:
+            raise HTTPException(
+                status_code=403,
+                detail=moderacion.mensaje_suspension(usuario),
+            )
+        raise HTTPException(
+            status_code=400,
+            detail="Cuidá el lenguaje: no podés enviar un pedido con palabras ofensivas. Reescribilo sin groserías.",
+        )
+
+    diagnostico = ia_service.analizar_descripcion(
+        datos.descripcion_raw
+    )
     ids_plomeros = (
         datos.ids_plomeros_seleccionados or []
     )
@@ -554,6 +577,13 @@ def aceptar(
         id_plomero
     )
 
+    # Con un trabajo activo no aparece para urgencias/inmediatos hasta finalizar.
+    # (Sí puede recibir solicitudes para días/horarios futuros libres de su agenda.)
+    if plomero_actor:
+        plomero_actor.disponible_ahora = False
+        plomero_actor.disponible_desde = None
+        db.commit()
+
     solicitud = solicitud_repository.obtener_por_id(
         db,
         id_solicitud
@@ -699,7 +729,6 @@ def reintentar(
     if solicitud.estado not in (
         EstadoSolicitud.SIN_RESPUESTA,
         EstadoSolicitud.PENDIENTE,
-        EstadoSolicitud.REASIGNACION_PENDIENTE,   # el plomero canceló → volver a buscar
     ):
         raise HTTPException(
             status_code=400,
@@ -711,9 +740,14 @@ def reintentar(
             detail="Se agotaron los reintentos. Cancelá la solicitud para cerrarla.",
         )
 
-    # Excluir a quienes ya fueron contactados en ESTA solicitud (rechazaron o no respondieron)
-    ya_contactados = solicitud_plomero_repository.obtener_contactados(db, id_solicitud)
-    nuevos_ids = [pid for pid in (ids_plomeros or []) if pid not in ya_contactados]
+    # Excluir SOLO a quienes rechazaron o cancelaron en ESTA solicitud.
+    # Los que fueron contactados pero no llegaron a responder siguen siendo elegibles.
+    _invs = solicitud_plomero_repository.obtener_por_solicitud(db, id_solicitud)
+    excluidos_ids = {
+        inv.id_plomero for inv in _invs
+        if inv.estado in (EstadoInvitacion.RECHAZADO, EstadoInvitacion.CANCELADO)
+    }
+    nuevos_ids = [pid for pid in (ids_plomeros or []) if pid not in excluidos_ids]
     if not nuevos_ids:
         raise HTTPException(
             status_code=400,
@@ -786,13 +820,16 @@ def crear_o_actualizar_borrador(db: Session, descripcion: str, id_usuario: int):
     usuario con el diagnóstico, para que la búsqueda no se pierda al navegar.
     Queda abierto hasta que lo envía, lo cancela o vence a las 48hs.
     """
-    diagnostico = ia_service.analizar_descripcion(descripcion)
-    if not diagnostico.get("valido", True):
-        return {"diagnostico": diagnostico, "borrador": None}
-
     usuario = usuario_repository.buscar_por_id(db, id_usuario)
     if moderacion.esta_suspendido(db, usuario):
         raise HTTPException(status_code=403, detail=moderacion.mensaje_suspension(usuario))
+
+    # La moderación del lenguaje se hace en el paso de validación (/plomeros/sugerir),
+    # que frena el envío y limpia el cuadro antes de crear nada. Acá el texto ya
+    # llega limpio, así que el borrador nunca guarda un pedido con groserías.
+    diagnostico = ia_service.analizar_descripcion(descripcion)
+    if not diagnostico.get("valido", True):
+        return {"diagnostico": diagnostico, "borrador": None}
 
     # Reutilizamos el borrador abierto del usuario si ya existe (uno por vez).
     existente = next(
@@ -953,13 +990,13 @@ def marcar_en_camino(
 
     if (
         solicitud.fecha_trabajo
-        and datetime.now().date() < solicitud.fecha_trabajo.date()
+        and datetime.now() < solicitud.fecha_trabajo - timedelta(hours=2)
     ):
         raise HTTPException(
             status_code=400,
             detail=(
-                "Solo podés marcar EN CAMINO "
-                "el día del trabajo o después"
+                "Todavía no podés marcar EN CAMINO. "
+                "Recién a partir de 2 horas antes del horario acordado."
             )
         )
 
@@ -968,6 +1005,10 @@ def marcar_en_camino(
         id_solicitud,
         EstadoSolicitud.EN_CAMINO
     )
+    # Registrar cuándo marcó EN CAMINO (para exigir 2hs antes de finalizar).
+    solicitud.fecha_en_camino = datetime.now()
+    db.commit()
+    db.refresh(solicitud)
 
     notificaciones_inapp.notificar_cliente(
         db,
@@ -1014,6 +1055,19 @@ def completar(
             )
         )
 
+    # Solo se puede finalizar al menos 2hs después de marcar EN CAMINO.
+    if (
+        solicitud.fecha_en_camino
+        and datetime.now() < solicitud.fecha_en_camino + timedelta(hours=2)
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Podés marcar FINALIZADO recién 2 horas después "
+                "de haber marcado EN CAMINO."
+            ),
+        )
+
     # La boleta es OBLIGATORIA: no se puede finalizar sin cargar al menos un ítem
     # (materiales y/o mano de obra). Cada ítem ya fue validado al cargarse.
     total_boleta = material_repository.total_por_solicitud(db, id_solicitud)
@@ -1034,7 +1088,17 @@ def completar(
         EstadoSolicitud.PENDIENTE_CALIFICACION
     )
 
-    # Arranca el plazo de 72hs para que ambos califiquen
+    # El plomero vuelve a estar disponible desde la HORA PRÓXIMA al cierre.
+    plomero_fin = plomero_repository.buscar_por_id(db, id_plomero)
+    if plomero_fin:
+        ahora = datetime.now()
+        plomero_fin.disponible_desde = (
+            ahora.replace(minute=0, second=0, microsecond=0) + timedelta(hours=1)
+        )
+        plomero_fin.disponible_ahora = False
+        db.commit()
+
+    # Arranca el plazo de 48hs para que ambos califiquen
     _cal_service.activar_periodo_calificacion(db, id_solicitud)
 
     notificaciones_inapp.notificar_cliente(
@@ -1042,7 +1106,7 @@ def completar(
         id_usuario=solicitud.id_usuario,
         tipo="trabajo_finalizado",
         titulo="Trabajo finalizado 🏁",
-        mensaje="El trabajo fue marcado como finalizado. Tenés 72 horas para calificar al profesional.",
+        mensaje="El trabajo fue marcado como finalizado. Tenés 48 horas para calificar al profesional.",
         id_solicitud=id_solicitud,
     )
 
@@ -1319,3 +1383,65 @@ def obtener_para_usuario(db: Session, id_solicitud: int, id_usuario: int):
 
 def buscar_por_texto(db: Session, q: str):
     return solicitud_repository.buscar_por_texto(db, q)
+
+
+# ─────────────────────────────────────────────
+# VENCIMIENTO DEL TIEMPO DE RESPUESTA (scheduler)
+# ─────────────────────────────────────────────
+def _deadline_respuesta(s):
+    """Plazo para que un plomero responda una solicitud PENDIENTE.
+    30 min si es urgente, 3 hs si es normal, desde el último envío. Si se envió
+    pasadas las 22hs, el plazo se cuenta desde las 8 de la mañana del día siguiente
+    (extensión a responder al otro día)."""
+    base = s.fecha_ultimo_envio or s.fecha or datetime.now()
+    ventana = timedelta(minutes=30) if (s.urgencia_ia == "URGENTE") else timedelta(hours=3)
+    if base.hour >= 22:
+        base = (base + timedelta(days=1)).replace(hour=8, minute=0, second=0, microsecond=0)
+    return base + ventana
+
+
+def cerrar_pendientes_sin_respuesta(db: Session) -> int:
+    """Cierra las solicitudes PENDIENTE cuyo plazo de respuesta venció sin que
+    ningún plomero aceptara. Avisa al cliente igual que cuando todos rechazan:
+    si quedan reintentos → SIN_RESPUESTA (puede volver a buscar los 5); si no → CANCELADA."""
+    cerradas = 0
+    ahora = datetime.now()
+    pendientes = (
+        db.query(Solicitud)
+        .filter(Solicitud.estado == EstadoSolicitud.PENDIENTE)
+        .all()
+    )
+    for s in pendientes:
+        if ahora <= _deadline_respuesta(s):
+            continue
+        # Los que no respondieron NO rechazaron: quedan SIN_RESPUESTA, así siguen
+        # siendo elegibles si el cliente vuelve a buscar.
+        for inv in s.plomeros:
+            if inv.estado == EstadoInvitacion.CONTACTADO:
+                inv.estado = EstadoInvitacion.SIN_RESPUESTA
+        intentos = s.intentos_reasignacion or 0
+        if intentos >= MAX_RONDAS_BUSQUEDA:
+            s.estado = EstadoSolicitud.CANCELADA
+            notificaciones_inapp.notificar_cliente(
+                db, id_usuario=s.id_usuario, tipo="sin_respuesta",
+                titulo="No encontramos un profesional",
+                mensaje=(
+                    "Disculpá las molestias: pasó el tiempo de respuesta y ningún "
+                    "profesional tomó tu pedido. Cerramos la solicitud; podés intentarlo más tarde."
+                ),
+                id_solicitud=s.id_solicitud,
+            )
+        else:
+            s.estado = EstadoSolicitud.SIN_RESPUESTA
+            notificaciones_inapp.notificar_cliente(
+                db, id_usuario=s.id_usuario, tipo="sin_respuesta",
+                titulo="Tu pedido no fue tomado a tiempo",
+                mensaje=(
+                    "Pasó el tiempo de respuesta y el/los profesionales no tomaron tu pedido. "
+                    "Volvé a buscar otros o cancelá la solicitud."
+                ),
+                id_solicitud=s.id_solicitud,
+            )
+        db.commit()
+        cerradas += 1
+    return cerradas

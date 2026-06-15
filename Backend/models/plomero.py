@@ -25,6 +25,9 @@ class Plomero(PersonaMixin, Base):
     genero                     = Column(String)
     atiende_urgencias          = Column(Boolean, default=False)
     disponible_ahora           = Column(Boolean, default=True)
+    # Si tiene un trabajo activo, queda no disponible hasta finalizar; al finalizar
+    # se libera desde la hora próxima (disponible_desde). Null = sin restricción.
+    disponible_desde           = Column(DateTime, nullable=True)
     puntuacion                 = Column(Float,   default=5.0)
     total_trabajos             = Column(Integer, default=0)
     matricula_gas              = Column(Boolean, default=False)

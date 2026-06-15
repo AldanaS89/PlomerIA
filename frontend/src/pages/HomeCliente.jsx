@@ -194,6 +194,7 @@ function ScreenProblema({ onBuscar }) {
   const [urgencia,  setUrgencia]  = useState(false);
   const [validando, setValidando] = useState(false);
   const [errorDesc, setErrorDesc] = useState("");
+  const [avisoLenguaje, setAvisoLenguaje] = useState(null);
 
   const URGENCIA_KEYWORDS = [
     "inunda","pérdida","perder","no cierra","roto","explota",
@@ -226,6 +227,12 @@ function ScreenProblema({ onBuscar }) {
           "Por favor describí mejor el problema.");
         return;
       }
+      // Lenguaje ofensivo: NO avanzamos a recomendaciones (eso lo vería el
+      // profesional). Mostramos el cartel y limpiamos el cuadro para reescribir.
+      if (res.data?.aviso_lenguaje?.mensaje) {
+        setAvisoLenguaje(res.data.aviso_lenguaje.mensaje);
+        return;
+      }
       onBuscar(texto, urgencia);
     } catch (e) {
       const detail = e.response?.data?.detail;
@@ -241,6 +248,29 @@ function ScreenProblema({ onBuscar }) {
 
   return (
     <div style={{ maxWidth: "640px", margin: "0 auto", padding: "60px 24px" }}>
+      {avisoLenguaje && (
+        <div style={{ position:"fixed", inset:0, zIndex:1000, background:"rgba(15,23,42,0.55)",
+          backdropFilter:"blur(2px)", display:"flex", alignItems:"center", justifyContent:"center",
+          padding:20 }}>
+          <div style={{ background:"#fff", borderRadius:20, maxWidth:380, width:"100%",
+            padding:"30px 26px", textAlign:"center", boxShadow:"0 24px 70px rgba(0,0,0,0.35)",
+            border:"1px solid #FDE68A", fontFamily:"'DM Sans',sans-serif" }}>
+            <div style={{ fontSize:44, marginBottom:12 }}>⚠️</div>
+            <div style={{ fontWeight:800, fontSize:19, color:"#0F172A", marginBottom:10 }}>
+              Cuidá el lenguaje
+            </div>
+            <div style={{ fontSize:14, color:"#475569", lineHeight:1.55, marginBottom:22 }}>
+              {avisoLenguaje}
+            </div>
+            <button onClick={() => { setAvisoLenguaje(null); setTexto(""); setUrgencia(false); setErrorDesc(""); }}
+              style={{ background:"linear-gradient(135deg,#F59E0B,#D97706)", color:"#fff",
+                border:"none", borderRadius:12, padding:"12px 32px", fontFamily:"'DM Sans',sans-serif",
+                fontWeight:700, fontSize:14, cursor:"pointer", width:"100%" }}>
+              Aceptar
+            </button>
+          </div>
+        </div>
+      )}
       <div style={{ marginBottom: "32px" }}>
         <h1 style={{ fontFamily: "'DM Sans',sans-serif", fontWeight: "800",
           fontSize: "28px", color: "#0F172A", letterSpacing: "-0.5px", margin: "0 0 8px" }}>
@@ -442,17 +472,26 @@ function TurnoSelector({ plomero, turnoActual, onSelect }) {
   };
   const franjaOcupada = (dia, franjaKey) => ocupados.includes(`${fechaISOde(dia)}_${franjaKey}`);
 
-  // Días con al menos una franja disponible y NO ocupada
-  const diasDisponibles = DIAS_DISP.filter(dia =>
-    FRANJAS_DISP.some(f => agenda[`${dia}_${f.key}`] && !franjaOcupada(dia, f.key))
-  );
+  // Si el día es HOY, solo se ofrecen horas desde la hora SIGUIENTE a la actual
+  // (no se agenda en horarios ya pasados).
+  const ahoraSel = new Date();
+  const esHoy = (dia) => {
+    const f = getFechaParaDia(dia);
+    return f.getFullYear() === ahoraSel.getFullYear()
+      && f.getMonth() === ahoraSel.getMonth()
+      && f.getDate() === ahoraSel.getDate();
+  };
+  const horasDisponiblesDe = (dia) =>
+    FRANJAS_DISP
+      .filter(f => agenda[`${dia}_${f.key}`] && !franjaOcupada(dia, f.key))
+      .flatMap(f => f.horas)
+      .filter(hora => !esHoy(dia) || hora >= ahoraSel.getHours() + 1);
 
-  // Horas disponibles para el día elegido (excluye franjas ocupadas)
-  const horasDelDia = diaElegido
-    ? FRANJAS_DISP
-        .filter(f => agenda[`${diaElegido}_${f.key}`] && !franjaOcupada(diaElegido, f.key))
-        .flatMap(f => f.horas)
-    : [];
+  // Días con al menos una hora disponible a futuro
+  const diasDisponibles = DIAS_DISP.filter(dia => horasDisponiblesDe(dia).length > 0);
+
+  // Horas disponibles para el día elegido
+  const horasDelDia = diaElegido ? horasDisponiblesDe(diaElegido) : [];
 
   // Parsear turno seleccionado: "Lun_manana_9" → dia, franja, hora
   const partesTurno = turnoActual ? turnoActual.split("_") : [];
@@ -1585,7 +1624,74 @@ function CancelarSolicitudBtn({ idSolicitud, inline = false }) {
 }
 
 
-function ScreenMiSolicitud({ historial, loading, onNav, onReSolicitar, onContinuarBorrador }) {
+function CalificarPlomeroInline({ idSolicitud, nombrePlomero, onRated }) {
+  const [rating, setRating]   = useState(0);
+  const [coment, setComent]   = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError]     = useState("");
+
+  const enviar = async () => {
+    if (!rating) return;
+    setLoading(true); setError("");
+    try {
+      await api.post(`/calificaciones/${idSolicitud}`, { estrellas: rating, comentario: coment || null });
+      if (onRated) onRated();
+    } catch (e) {
+      setError(e.response?.data?.detail || "No se pudo enviar la calificación.");
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div style={{ background:"#fff", borderRadius:"16px", border:"2px solid #FEF3C7",
+      padding:"20px", marginBottom:"16px", boxShadow:"0 4px 20px rgba(0,0,0,0.06)" }}>
+      <div style={{ display:"flex", alignItems:"center", gap:"10px", marginBottom:"14px" }}>
+        <div style={{ fontSize:"22px" }}>🏁</div>
+        <div>
+          <div style={{ fontFamily:"'DM Sans',sans-serif", fontWeight:"800",
+            fontSize:"15px", color:"#B45309" }}>Trabajo finalizado</div>
+          <div style={{ fontFamily:"'DM Sans',sans-serif", fontSize:"12px", color:"#94A3B8" }}>
+            Calificá a {nombrePlomero || "tu plomero"}
+          </div>
+        </div>
+      </div>
+      <div style={{ fontFamily:"'DM Sans',sans-serif", fontSize:"12px", fontWeight:"700",
+        color:"#64748B", marginBottom:"8px" }}>¿Cómo estuvo el trabajo?</div>
+      <div style={{ display:"flex", gap:"6px", marginBottom:"10px" }}>
+        {[1,2,3,4,5].map(i => (
+          <button key={i} onClick={() => setRating(i)} disabled={loading}
+            style={{ width:"34px", height:"34px", borderRadius:"8px",
+              border: rating >= i ? "2px solid #F59E0B" : "2px solid #E2E8F0",
+              background: rating >= i ? "#FFFBEB" : "#F8FAFC",
+              fontSize:"16px", cursor:"pointer" }}>⭐</button>
+        ))}
+      </div>
+      {rating > 0 && (
+        <>
+          <textarea value={coment} onChange={e => setComent(e.target.value)}
+            placeholder="Contá tu experiencia (opcional)..." rows={2}
+            style={{ width:"100%", borderRadius:"10px", padding:"10px 12px",
+              border:"1.5px solid #E2E8F0", fontFamily:"'DM Sans',sans-serif",
+              fontSize:"13px", color:"#0F172A", resize:"none", outline:"none",
+              boxSizing:"border-box", background:"#F8FAFC", marginBottom:"8px" }} />
+          <button onClick={enviar} disabled={loading}
+            style={{ width:"100%", background:"linear-gradient(135deg,#F59E0B,#D97706)",
+              color:"#fff", border:"none", borderRadius:"10px", padding:"10px",
+              fontFamily:"'DM Sans',sans-serif", fontWeight:"700", fontSize:"13px",
+              cursor:"pointer" }}>
+            {loading ? "Enviando…" : "Enviar valoración ⭐"}
+          </button>
+        </>
+      )}
+      {error && (
+        <div style={{ marginTop:"8px", color:"#B91C1C", fontSize:"12px",
+          fontFamily:"'DM Sans',sans-serif", fontWeight:"600" }}>{error}</div>
+      )}
+    </div>
+  );
+}
+
+function ScreenMiSolicitud({ historial, loading, onNav, onReSolicitar, onContinuarBorrador, onRated }) {
   const [vistas, setVistas] = useState(leerCerradasVistas);
 
   // Al tocar "Volver al inicio": marca la cerrada como vista (no vuelve a aparecer) y navega.
@@ -1606,7 +1712,8 @@ function ScreenMiSolicitud({ historial, loading, onNav, onReSolicitar, onContinu
       }
       // borrador = pedido en preparación (diagnóstico pedido, todavía sin enviar a nadie).
       return e === "borrador" || e === "pendiente" || e === "en_progreso" || e === "en_camino"
-        || e === "reasignacion_pendiente" || e === "sin_respuesta";
+        || e === "reasignacion_pendiente" || e === "sin_respuesta"
+        || (e === "pendiente_calificacion" && !h.cliente_califico);
     })
     .sort((a, b) => new Date(b.fecha) - new Date(a.fecha));
 
@@ -1661,6 +1768,8 @@ function ScreenMiSolicitud({ historial, loading, onNav, onReSolicitar, onContinu
       {activas.map(h => (
         h.cerrada_sin_respuesta
           ? <CerradaSinRespuestaCard key={h.id_solicitud} h={h} onVolver={() => volverAlInicio(h.id_solicitud)} />
+          : (h.estado || "").toLowerCase() === "pendiente_calificacion"
+            ? <CalificarPlomeroInline key={h.id_solicitud} idSolicitud={h.id_solicitud} nombrePlomero={h.nombre_plomero} onRated={onRated} />
           : (h.estado || "").toLowerCase() === "borrador"
             ? <BorradorCard key={h.id_solicitud} h={h} onContinuar={() => onContinuarBorrador(h)} />
             : <SolicitudCard key={h.id_solicitud} h={h} onReSolicitar={onReSolicitar} />
@@ -2310,15 +2419,17 @@ export default function HomeCliente({ onLogout }) {
   };
 
   // Volver a buscar SOBRE LA MISMA solicitud (no crea una nueva), excluyendo
-  // a todos los que ya fueron contactados (rechazaron o no respondieron).
+  // SOLO a los que rechazaron o cancelaron (los que no respondieron siguen elegibles).
   const handleReSolicitar = (solicitud) => {
     const desc = solicitud.descripcion_raw || "";
     setProblema(desc);
     // Detectar urgencia por palabras clave
     const URGENCIA_KEYWORDS = ["inunda","pérdida","perder","no cierra","roto","explota","revienta","urgente","emergencia","fuga","chorrea","sale agua"];
     setUrgencia(URGENCIA_KEYWORDS.some(k => desc.toLowerCase().includes(k)));
-    // Excluir a todos los plomeros ya invitados en ESTA solicitud
-    const excluidos = (solicitud.invitaciones || []).map(i => i.id_plomero);
+    // Excluir SOLO a los que rechazaron o cancelaron en ESTA solicitud.
+    const excluidos = (solicitud.invitaciones || [])
+      .filter(i => ["rechazado", "cancelado"].includes((i.estado || "").toLowerCase()))
+      .map(i => i.id_plomero);
     setIdsExcluidos(excluidos);
     setReintentarId(solicitud.id_solicitud);   // reintenta sobre la misma solicitud
     setBorradorId(null);                       // no es un borrador, es un reintento
@@ -2385,6 +2496,7 @@ export default function HomeCliente({ onLogout }) {
           onNav={setScreen}
           onReSolicitar={handleReSolicitar}
           onContinuarBorrador={handleContinuarBorrador}
+          onRated={() => { cargarHistorial(); setScreen("problema"); }}
         />
       )}
       {screen === "trabajos-finalizados" && (

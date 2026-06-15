@@ -61,10 +61,10 @@ export default function TerminosCondiciones({ open, onClose }) {
               anticipación, y mayor si cancelaste sin avisar o sobre la hora.
             </p>
             <p>
-              Si acumulás <b>3 cancelaciones consecutivas</b> de trabajos ya
-              aceptados, la cuenta se <b>suspende por 2 meses</b> y se reactiva
-              automáticamente al cumplirse el plazo. Completar un trabajo sin
-              cancelar reinicia el contador.
+              Si acumulás <b>3 cancelaciones consecutivas</b>, la cuenta se
+              <b> suspende por 30 días</b> y se reactiva automáticamente al
+              cumplirse el plazo. Completar un trabajo sin cancelar reinicia el
+              contador.
             </p>
           </Seccion>
 
@@ -73,7 +73,7 @@ export default function TerminosCondiciones({ open, onClose }) {
               El chat <b>censura automáticamente</b> las malas palabras (se
               muestran con asteriscos). El uso de lenguaje ofensivo genera un
               <b> aviso</b>; al <b>tercer</b> mensaje ofensivo la cuenta se
-              <b> suspende por 1 mes</b>, con reactivación automática.
+              <b> suspende por 2 meses</b>, con reactivación automática.
             </p>
           </Seccion>
 

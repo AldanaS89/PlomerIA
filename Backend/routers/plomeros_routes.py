@@ -2,16 +2,16 @@
 import json
 from typing import Optional
 
-from fastapi import APIRouter, Depends, UploadFile, File, Form
+from fastapi import APIRouter, Depends, UploadFile, File, Form, HTTPException
 from sqlalchemy.orm import Session
 
-from repositories import plomero_repository
+from repositories import plomero_repository, usuario_repository
 from services.foto_service import servicio_foto
 from database import get_db
 from schemas.plomero import PlomeroResponse
 
-from services import plomero_service, ia_service
-from core.auth import get_plomero_actual
+from services import plomero_service, ia_service, moderacion
+from core.auth import get_plomero_actual, get_usuario_actual
 
 router = APIRouter(tags=["Plomeros"])
 
@@ -109,7 +109,7 @@ def buscar(
 
 # ── SUGERIR — con validación de descripción ───────────────────────────────────
 @router.post("/sugerir")
-def sugerir(datos: dict, db: Session = Depends(get_db)):
+def sugerir(datos: dict, db: Session = Depends(get_db), id_usuario: int = Depends(get_usuario_actual)):
     descripcion      = datos.get("descripcion", "")
     solo_validar     = datos.get("solo_validar", False)
     solo_mujeres     = datos.get("solo_mujeres", False)
@@ -127,9 +127,31 @@ def sugerir(datos: dict, db: Session = Depends(get_db)):
         }
 
     if solo_validar:
+        # Moderación del texto del problema en el paso de validación (antes de
+        # recomendar). Si hay groserías suma una amonestación; a la 3ª suspende
+        # (403 → cartel y cierre de sesión). En 1ª/2ª devuelve aviso para que el
+        # front muestre el cartel y limpie el cuadro (NO se recomienda nada).
+        usuario = usuario_repository.buscar_por_id(db, id_usuario)
+        if moderacion.esta_suspendido(db, usuario):
+            raise HTTPException(status_code=403, detail=moderacion.mensaje_suspension(usuario))
+        _cens, hubo_groseria = moderacion.censurar(descripcion)
+        aviso_lenguaje = None
+        if hubo_groseria:
+            suspendido, aviso = moderacion.registrar_mensaje_ofensivo(db, usuario)
+            if suspendido:
+                raise HTTPException(status_code=403, detail=moderacion.mensaje_suspension(usuario))
+            aviso_lenguaje = {
+                "aviso": aviso,
+                "total": moderacion.AMONESTACIONES_PARA_SUSPENSION,
+                "mensaje": (
+                    f"Cuidá el lenguaje: detectamos palabras ofensivas (aviso {aviso} de "
+                    f"{moderacion.AMONESTACIONES_PARA_SUSPENSION}). A la 3ª, tu cuenta se suspende 1 mes."
+                ),
+            }
         return {
             "diagnostico": diagnostico,
             "plomeros":    [],
+            "aviso_lenguaje": aviso_lenguaje,
         }
 
     plomeros = plomero_service.sugerir(

@@ -86,6 +86,7 @@ def main():
             p.suspendido = False
             p.suspendido_hasta = None
             p.mensajes_ofensivos = 0
+            p.disponible_desde = None   # limpia el "cooldown" post-finalización
 
         # Los clientes son todos "tuyos": arrancan de cero
         clientes = 0

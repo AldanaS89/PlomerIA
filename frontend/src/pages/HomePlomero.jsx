@@ -4,6 +4,7 @@ import { useAuthStore } from "../store/authStore";
 import ChatWidget from "../components/ChatWidget";
 import BoletaMateriales from "../components/BoletaMateriales";
 import UserBadge from "../components/UserBadge";
+import { mostrarCartel } from "../utils/cartel";
 import { useNotificaciones } from "../hooks/useNotificaciones";
 
 const BADGE_STYLES = {
@@ -358,7 +359,58 @@ function formatearTurno(turnoStr) {
   } catch { return turnoStr.replace(/_/g, " "); }
 }
 
-function ScreenActivos({ activos, onEnCamino, onCompletar, onCancelar, onReprogramar, loading }) {
+function CalificarClienteInline({ idSolicitud, nombreCliente, onRated }) {
+  const [rating, setRating]   = useState(0);
+  const [loading, setLoading] = useState(false);
+  const [done, setDone]       = useState(false);
+
+  const enviar = async () => {
+    if (!rating) return;
+    setLoading(true);
+    try {
+      await api.post(`/calificaciones/plomero/${idSolicitud}`, { estrellas: rating, comentario: null });
+    } catch { /* si ya estaba calificado, lo damos por hecho */ }
+    setDone(true);
+    setLoading(false);
+    if (onRated) onRated();
+  };
+
+  if (done) return (
+    <div style={{ background:"#F0FDF4", border:"1px solid #86EFAC", borderRadius:"10px",
+      padding:"10px 14px", fontFamily:"'DM Sans',sans-serif", fontSize:"13px",
+      color:"#15803D", fontWeight:"600" }}>
+      ✓ ¡Gracias! Calificaste a {nombreCliente || "el cliente"}.
+    </div>
+  );
+
+  return (
+    <div>
+      <div style={{ fontFamily:"'DM Sans',sans-serif", fontSize:"12px", fontWeight:"700",
+        color:"#64748B", marginBottom:"8px" }}>
+        ¿Cómo fue el cliente {nombreCliente ? `(${nombreCliente})` : ""}?
+      </div>
+      <div style={{ display:"flex", gap:"6px", alignItems:"center" }}>
+        {[1,2,3,4,5].map(i => (
+          <button key={i} onClick={() => setRating(i)} disabled={loading}
+            style={{ width:"34px", height:"34px", borderRadius:"8px",
+              border: rating >= i ? "2px solid #F59E0B" : "2px solid #E2E8F0",
+              background: rating >= i ? "#FFFBEB" : "#F8FAFC",
+              fontSize:"16px", cursor:"pointer" }}>⭐</button>
+        ))}
+        <button onClick={enviar} disabled={!rating || loading}
+          style={{ marginLeft:"8px",
+            background: rating ? "linear-gradient(135deg,#F59E0B,#D97706)" : "#E2E8F0",
+            color: rating ? "#fff" : "#94A3B8", border:"none", borderRadius:"9px",
+            padding:"8px 14px", fontFamily:"'DM Sans',sans-serif", fontWeight:"700",
+            fontSize:"12px", cursor: rating ? "pointer" : "not-allowed" }}>
+          {loading ? "Enviando…" : "Enviar"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function ScreenActivos({ activos, onEnCamino, onCompletar, onCancelar, onReprogramar, loading, onRated }) {
   const [loadingId,  setLoadingId]  = useState(null);
   const [cancelando, setCancelando] = useState(null);
   const [reprog,     setReprog]     = useState(null);  // id con form de reprogramar abierto
@@ -391,6 +443,34 @@ function ScreenActivos({ activos, onEnCamino, onCompletar, onCancelar, onReprogr
       {activos.map(t => {
         const estadoVal = (t.estado || "en_progreso").toLowerCase();
         const info = ESTADO_INFO[estadoVal] || ESTADO_INFO.en_progreso;
+
+        if (estadoVal === "pendiente_calificacion") {
+          return (
+            <div key={t.id_solicitud} style={{ background:"#fff", borderRadius:"20px",
+              border:"2px solid #FEF3C7", padding:"22px", marginBottom:"16px",
+              boxShadow:"0 4px 20px rgba(0,0,0,0.06)" }}>
+              <div style={{ display:"flex", alignItems:"center", gap:"10px", marginBottom:"14px" }}>
+                <div style={{ fontSize:"22px" }}>🏁</div>
+                <div>
+                  <div style={{ fontFamily:"'DM Sans',sans-serif", fontWeight:"800",
+                    fontSize:"15px", color:"#B45309" }}>Trabajo finalizado</div>
+                  <div style={{ fontFamily:"'DM Sans',sans-serif", fontSize:"12px", color:"#94A3B8" }}>
+                    {t.nombre_cliente || "Cliente"}{t.localidad_evento ? ` · ${t.localidad_evento}` : ""}
+                  </div>
+                </div>
+              </div>
+              {t.total_boleta > 0 && (
+                <div style={{ fontFamily:"'DM Sans',sans-serif", fontSize:"13px", color:"#15803D",
+                  fontWeight:"800", marginBottom:"12px" }}>
+                  💰 Cobrado: ${Number(t.total_boleta).toLocaleString("es-AR")}
+                </div>
+              )}
+              <CalificarClienteInline idSolicitud={t.id_solicitud}
+                nombreCliente={t.nombre_cliente} onRated={onRated} />
+            </div>
+          );
+        }
+
         const esEnCamino  = estadoVal === "en_camino";
         const esEnProgreso = estadoVal === "en_progreso";
 
@@ -551,12 +631,12 @@ function ScreenActivos({ activos, onEnCamino, onCompletar, onCancelar, onReprogr
             })()}
 
             {esEnCamino && (() => {
-              // "Finalizar" se habilita a partir de la hora del turno.
+              // "Finalizar" se habilita recién 2 h DESPUÉS de marcar EN CAMINO.
               let puede = true, horaTxt = "";
-              if (t.fecha_trabajo) {
-                const ft = new Date(t.fecha_trabajo);
-                puede = new Date() >= ft;
-                horaTxt = ft.toLocaleTimeString("es-AR", { hour:"2-digit", minute:"2-digit" });
+              if (t.fecha_en_camino) {
+                const habilita = new Date(new Date(t.fecha_en_camino).getTime() + 2 * 60 * 60 * 1000);
+                puede = new Date() >= habilita;
+                horaTxt = habilita.toLocaleTimeString("es-AR", { hour:"2-digit", minute:"2-digit" });
               }
               return (
                 <button
@@ -567,7 +647,7 @@ function ScreenActivos({ activos, onEnCamino, onCompletar, onCancelar, onReprogr
                     setLoadingId(null);
                   }}
                   disabled={!!loadingId || !puede}
-                  title={!puede ? `Podés finalizar a partir de las ${horaTxt}` : ""}
+                  title={!puede ? `Podés finalizar a las ${horaTxt} (2 h después de marcar en camino)` : ""}
                   style={{ width:"100%",
                     background: puede ? "linear-gradient(135deg,#22C55E,#16A34A)" : "#E2E8F0",
                     border:"none", borderRadius:"14px", padding:"13px",
@@ -963,7 +1043,7 @@ function ScreenAgenda({ activos, historial }) {
 }
 
 // ─── SCREEN: HISTORIAL ────────────────────────────────────────────────────────
-function ScreenHistorial({ historial, loading, puntuacionPerfil, totalTrabajosPerfil, fechaRegistroPerfil }) {
+function ScreenHistorial({ historial, activos = [], loading, puntuacionPerfil, totalTrabajosPerfil, fechaRegistroPerfil }) {
   const [ratingCli,  setRatingCli]  = useState({});
   const [valoradoCli, setValoradoCli] = useState({});
   const [loadingCli, setLoadingCli] = useState({});
@@ -991,11 +1071,15 @@ function ScreenHistorial({ historial, loading, puntuacionPerfil, totalTrabajosPe
     </div>
   );
 
-  const terminados = historial.filter(h => {
-    const e = (h.estado || "").toLowerCase();
-    return e === "completada" || e === "completado" || e === "finalizado"
-      || e === "pendiente_calificacion";
-  });
+  // GANANCIAS: cuentan TODOS los trabajos finalizados (con boleta), aunque todavía
+  // no estén calificados. Por eso unimos los del historial con los que están en
+  // "en curso" esperando calificación (pendiente_calificacion).
+  const _esFinalizado = (e) => e === "completada" || e === "completado"
+    || e === "finalizado" || e === "pendiente_calificacion";
+  const _mapTerm = new Map();
+  historial.forEach(h => { if (_esFinalizado((h.estado||"").toLowerCase())) _mapTerm.set(h.id_solicitud, h); });
+  activos.forEach(a => { if ((a.estado||"").toLowerCase() === "pendiente_calificacion") _mapTerm.set(a.id_solicitud, a); });
+  const terminados = Array.from(_mapTerm.values());
 
   // El promedio viene del backend (perfil): ya incluye los 5 puntos base,
   // las calificaciones reales y las penalizaciones. NO se recalcula con las
@@ -1113,7 +1197,11 @@ function ScreenHistorial({ historial, loading, puntuacionPerfil, totalTrabajosPe
   const TICKET = 25000;
   const META_MENSUAL = 500000;
   const ahora = new Date();
-  const trabajos = terminados.length || totalTrabajosPerfil || 0;
+  // CONTEO de "trabajos terminados": usa el total del backend, que se incrementa
+  // recién cuando el trabajo se califica (manual o automático a las 48hs). Así la
+  // plata se ve al finalizar, pero el conteo y la puntuación se actualizan al calificar.
+  const trabajos = (totalTrabajosPerfil != null && !isNaN(totalTrabajosPerfil))
+    ? totalTrabajosPerfil : terminados.length;
 
   const alta = fechaRegistroPerfil ? new Date(fechaRegistroPerfil) : null;
   const altaValida = alta && !isNaN(alta.getTime());
@@ -1398,12 +1486,13 @@ export default function HomePlomero({ onLogout }) {
       aplicar(setSolicitudes, todas.filter(s => (s.estado || "").toLowerCase() === "pendiente"));
       aplicar(setActivos, todas.filter(s => {
         const e = (s.estado || "").toLowerCase();
-        return e === "en_progreso" || e === "en_camino";
+        return e === "en_progreso" || e === "en_camino"
+          || (e === "pendiente_calificacion" && !s.plomero_califico);
       }));
       aplicar(setHistorial, todas.filter(s => {
         const e = (s.estado || "").toLowerCase();
         return e === "completada" || e === "completado" || e === "finalizado"
-          || e === "pendiente_calificacion";
+          || (e === "pendiente_calificacion" && s.plomero_califico);
       }));
     } catch (e) {
       console.error("Error cargando solicitudes:", e);
@@ -1435,7 +1524,7 @@ export default function HomePlomero({ onLogout }) {
       setScreen("activos");
     } catch (e) {
       // Muestra el cartel del backend (ej. "tenés un trabajo sin cerrar…").
-      alert(e.response?.data?.detail || "No se pudo aceptar el trabajo.");
+      mostrarCartel(e.response?.data?.detail || "No se pudo aceptar el trabajo.", "error");
     }
   };
 
@@ -1457,10 +1546,10 @@ export default function HomePlomero({ onLogout }) {
     try {
       await api.patch(`/solicitudes/${idSolicitud}/completar`);
       await cargarSolicitudes();
-      setScreen("historial");
+      setScreen("activos");   // queda en "en curso" para calificar al cliente al toque
     } catch (e) {
       // Ej. "Cargá la boleta antes de finalizar el trabajo."
-      alert(e.response?.data?.detail || "No se pudo finalizar el trabajo.");
+      mostrarCartel(e.response?.data?.detail || "No se pudo finalizar el trabajo.", "error");
     }
   };
 
@@ -1510,11 +1599,12 @@ export default function HomePlomero({ onLogout }) {
           activos={activos} onEnCamino={handleEnCamino}
           onCompletar={handleCompletar} onCancelar={handleCancelar}
           onReprogramar={handleReprogramar} loading={loading}
+          onRated={() => { cargarSolicitudes(true); setScreen("solicitudes"); }}
         />
       )}
       {screen==="agenda" && <ScreenAgenda activos={activos} historial={historial}/>}
       {screen==="historial" && (
-        <ScreenHistorial historial={historial} loading={loading}
+        <ScreenHistorial historial={historial} activos={activos} loading={loading}
           puntuacionPerfil={perfil?.puntuacion} totalTrabajosPerfil={perfil?.total_trabajos}
           fechaRegistroPerfil={perfil?.fecha_registro}/>
       )}

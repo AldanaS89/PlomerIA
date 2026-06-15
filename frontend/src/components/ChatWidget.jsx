@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import api from "../services/api";
 import { useAuthStore } from "../store/authStore";
+import { mostrarCartelSuspension } from "../utils/suspensionModal";
 
 // Deriva la base del WebSocket a partir de la baseURL del cliente HTTP.
 // http://localhost:8000/api  ->  ws://localhost:8000
@@ -115,7 +116,14 @@ export default function ChatWidget({ conversaciones = [] }) {
     ws.onmessage = (ev) => {
       try {
         const m = JSON.parse(ev.data);
-        // Si MI mensaje volvió censurado (con asteriscos), aviso de lenguaje.
+        // 3ª falta → la cuenta quedó suspendida: cartel y cierre de sesión inmediato.
+        if (m.tipo === "cuenta_suspendida") {
+          mostrarCartelSuspension(m.mensaje, () => {
+            try { localStorage.removeItem("plomeria-auth"); } catch (e) { /* noop */ }
+            window.location.reload();
+          });
+          return;
+        }
         if ((m.emisor_id === miId || m.emisor_rol === miRol) &&
             typeof m.texto === "string" && m.texto.includes("*")) {
           setAvisoLenguaje(true);

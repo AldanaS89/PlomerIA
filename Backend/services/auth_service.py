@@ -16,8 +16,8 @@ def login(db: Session, email: str, password: str):
 
     if user and verify_password(password, user.password_hash):
         from services import moderacion
-        moderacion.reactivar_si_corresponde(db, user)   # reactivación automática si venció
-        if moderacion.esta_suspendido(db, user):        # sigue suspendido → no entra
+        moderacion.reactivar_si_corresponde(db, user)
+        if moderacion.esta_suspendido(db, user):
             raise HTTPException(status_code=403, detail=moderacion.mensaje_suspension(user))
         token = create_token({"sub": str(user.id_usuario), "tipo": "usuario"})
         return {
@@ -27,7 +27,7 @@ def login(db: Session, email: str, password: str):
             "nombre":       user.nombre,
             "apellido":     user.apellido,
             "email":        user.email,
-            "localidad":    user.localidad,   # ← necesario para el frontend
+            "localidad":    user.localidad,
             "direccion":    user.direccion,
             "latitud":      user.latitud,
             "longitud":     user.longitud,
@@ -39,8 +39,8 @@ def login(db: Session, email: str, password: str):
 
     if plomero and verify_password(password, plomero.password_hash):
         from services import moderacion
-        moderacion.reactivar_si_corresponde(db, plomero)   # reactivación automática si venció
-        if moderacion.esta_suspendido(db, plomero):        # sigue suspendido → no entra
+        moderacion.reactivar_si_corresponde(db, plomero)
+        if moderacion.esta_suspendido(db, plomero):
             raise HTTPException(status_code=403, detail=moderacion.mensaje_suspension(plomero))
         token = create_token({"sub": str(plomero.id_plomero), "tipo": "plomero"})
         return {
@@ -68,7 +68,6 @@ def forgot_password(db: Session, email: str):
     if not user:
         return {"message": "Si el email existe, recibirás instrucciones"}
 
-    # Cuenta suspendida → no se permite recuperar/cambiar la clave.
     from services import moderacion
     if moderacion.esta_suspendido(db, user):
         raise HTTPException(status_code=403, detail=moderacion.mensaje_suspension(user))
