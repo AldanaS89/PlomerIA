@@ -5,10 +5,10 @@ Sistema de calificación bidireccional — PlomerIA.
 FLUJO NORMAL:
   1. Plomero marca TERMINADO
      → solicitud pasa a PENDIENTE_CALIFICACION
-     → se guarda fecha_vencimiento_calificacion = ahora + 72hs
+     → se guarda fecha_vencimiento_calificacion = ahora + 48hs
      → al plomero se le muestra inmediatamente las estrellas para calificar al cliente
-  2. Cliente tiene 72hs para calificar al plomero (con comentario opcional)
-  3. Plomero tiene 72hs para calificar al cliente (solo estrellas, sin texto)
+  2. Cliente tiene 48hs para calificar al plomero (con comentario opcional)
+  3. Plomero tiene 48hs para calificar al cliente (solo estrellas, sin texto)
   4. Cuando LOS DOS calificaron → solicitud pasa a COMPLETADA
   5. Si alguno no califica antes del vencimiento → el scheduler registra
      5 estrellas automáticas y cierra la solicitud
@@ -62,8 +62,8 @@ PEN_CON_MSG_MAS_24H   = 2.0
 PEN_CON_MSG_MENOS_24H = 1.5
 
 CANCELACIONES_PARA_SUSPENSION  = 3
-HORAS_PARA_CALIFICAR           = 72   # plazo para calificar post-trabajo
-HORAS_ALERTA_CALIFICACION      = 48   # cuándo mandar el recordatorio
+HORAS_PARA_CALIFICAR           = 48   # plazo para calificar post-trabajo (48hs)
+HORAS_ALERTA_CALIFICACION      = 24   # recordatorio cuando faltan 24hs (mitad del plazo de 48hs)
 ESTRELLAS_VENCIMIENTO          = 5.0  # automáticas si no califican a tiempo
 
 
@@ -176,16 +176,16 @@ def _incrementar_cancelaciones(
     ) + 1
 
     if persona.cancelaciones_consecutivas >= CANCELACIONES_PARA_SUSPENSION:
-        if isinstance(persona, Plomero):
-            persona.disponible_ahora = False
-        persona.suspendido = True
+        # Suspensión temporal con reactivación automática (1 mes).
+        from services import moderacion
+        moderacion.suspender(db, persona, moderacion.DIAS_SUSPENSION_CANCELACIONES)
         logger.warning(
             "%s id=%s suspendido tras %s cancelaciones consecutivas",
             type(persona).__name__, id_actor,
             persona.cancelaciones_consecutivas,
         )
-
-    db.commit()
+    else:
+        db.commit()
 
 
 def resetear_cancelaciones(db: Session, persona) -> None:
@@ -252,7 +252,7 @@ def activar_periodo_calificacion(
 ) -> None:
     """
     Llamado por solicitud_service cuando el plomero marca TERMINADO.
-    Guarda la fecha de vencimiento (ahora + 72hs) en la solicitud.
+    Guarda la fecha de vencimiento (ahora + 48hs) en la solicitud.
     """
     solicitud = solicitud_repository.obtener_por_id(db, id_solicitud)
     if not solicitud:

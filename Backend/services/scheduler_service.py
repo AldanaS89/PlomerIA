@@ -3,8 +3,8 @@
 Scheduler de PlomerIA — tareas en segundo plano.
 
 Tareas activas:
-  - Cada hora: cerrar calificaciones vencidas (72hs sin calificar → 5 estrellas automáticas)
-  - Cada hora: enviar alerta de recordatorio a las 48hs de vencimiento
+  - Cada hora: cerrar calificaciones vencidas (48hs sin calificar → 5 estrellas automáticas)
+  - Cada hora: enviar alerta de recordatorio cuando faltan 24hs para el vencimiento
 
 Uso en main.py:
     from services.scheduler_service import iniciar_scheduler

@@ -3,6 +3,7 @@ import { useState, useRef, useCallback } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { registerPlomero, validarFotoPlomero } from "../services/plomeroService";
 import DireccionConMapa from "../components/DireccionConMapa";
+import TerminosCondiciones from "../components/TerminosCondiciones";
 import { useAuthStore } from "../store/authStore";
 
 // ─── PASOS ────────────────────────────────────────────────────────────────────
@@ -482,6 +483,8 @@ export default function RegistroPlomero({ onNav }) {
   const [otraEsp,    setOtraEsp]    = useState("");
   const [agenda,     setAgenda]     = useState({});
   const [oficio,     setOficio]     = useState("plomeria");
+  const [acepta,     setAcepta]     = useState(false);
+  const [verTyC,     setVerTyC]     = useState(false);
 
   const [form, setForm] = useState({
     nombre: "", apellido: "", email: "", password: "", confirmar: "",
@@ -508,6 +511,7 @@ export default function RegistroPlomero({ onNav }) {
       if (!form.email.includes("@")) e.email    = "Email inválido";
       if (form.password.length < 6)  e.password = "Mínimo 6 caracteres";
       if (form.password !== form.confirmar) e.confirmar = "Las contraseñas no coinciden";
+      if (!acepta) e.acepta = "Tenés que aceptar las Bases y Condiciones para registrarte";
     }
     setErrores(e);
     return Object.keys(e).length === 0;
@@ -573,6 +577,25 @@ export default function RegistroPlomero({ onNav }) {
         {paso === 3 && <PasoAgenda agenda={agenda} setAgenda={setAgenda}/>}
         {paso === 4 && <PasoAcceso form={form} setForm={setForm} errores={errores} oficio={oficio}/>}
 
+        {paso === 4 && (
+          <div className="mt-4">
+            <label className="flex items-start gap-2 text-sm text-slate-600 cursor-pointer select-none">
+              <input type="checkbox" checked={acepta} onChange={(e) => setAcepta(e.target.checked)}
+                className="mt-0.5 w-4 h-4 accent-emerald-600" />
+              <span>
+                Leí y acepto las{" "}
+                <button type="button" onClick={() => setVerTyC(true)}
+                  className="text-emerald-600 font-semibold hover:underline">
+                  Bases y Condiciones
+                </button>.
+              </span>
+            </label>
+            {errores.acepta && (
+              <p className="text-red-600 text-xs mt-1">{errores.acepta}</p>
+            )}
+          </div>
+        )}
+
         {error && (
           <div className="mt-4 bg-red-50 border border-red-200 rounded-xl px-4 py-3">
             <p className="text-red-600 text-sm text-center">{error}</p>
@@ -586,8 +609,8 @@ export default function RegistroPlomero({ onNav }) {
               ← Atrás
             </button>
           )}
-          <button type="button" onClick={avanzar} disabled={mut.isPending}
-            className="flex-1 bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-200 disabled:text-slate-400 text-white font-bold py-3 rounded-xl text-sm transition-colors">
+          <button type="button" onClick={avanzar} disabled={mut.isPending || (paso === 4 && !acepta)}
+            className="flex-1 bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-200 disabled:text-slate-400 disabled:cursor-not-allowed text-white font-bold py-3 rounded-xl text-sm transition-colors">
             {mut.isPending ? "Registrando…" : paso === 4 ? "Crear cuenta →" : "Siguiente →"}
           </button>
         </div>
@@ -599,6 +622,8 @@ export default function RegistroPlomero({ onNav }) {
           </button>
         </p>
       </div>
+
+      <TerminosCondiciones open={verTyC} onClose={() => setVerTyC(false)} />
     </div>
   );
 }

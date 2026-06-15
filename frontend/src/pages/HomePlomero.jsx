@@ -3,6 +3,7 @@ import api from "../services/api";
 import { useAuthStore } from "../store/authStore";
 import ChatWidget from "../components/ChatWidget";
 import BoletaMateriales from "../components/BoletaMateriales";
+import UserBadge from "../components/UserBadge";
 import { useNotificaciones } from "../hooks/useNotificaciones";
 
 const BADGE_STYLES = {
@@ -120,11 +121,12 @@ function Header({ screen, onNav, disponible, onToggleDisp, pendientes, notifCoun
             </span>
             <div style={{ fontFamily:"'DM Sans',sans-serif", fontSize:"11px",
               color:"#475569", marginTop:"1px" }}>
-              {user?.nombre} · Panel Profesional
+              Panel Profesional
             </div>
           </div>
         </div>
-        <div style={{ display:"flex", alignItems:"center", gap:"12px" }}>
+        <div style={{ display:"flex", alignItems:"center", gap:"14px" }}>
+          <UserBadge nombre={user?.nombre} apellido={user?.apellido} rol="Profesional" />
           <div style={{ display:"flex", alignItems:"center", gap:"8px" }}>
             <div style={{ textAlign:"right" }}>
               <div style={{ fontFamily:"'DM Sans',sans-serif", fontSize:"10px", fontWeight:"700",
@@ -401,6 +403,20 @@ function ScreenActivos({ activos, onEnCamino, onCompletar, onCancelar, onReprogr
             background:"#fff", borderRadius:"20px", border:"2px solid #F1F5F9",
             padding:"22px", marginBottom:"16px", boxShadow:"0 4px 20px rgba(0,0,0,0.06)",
           }}>
+            {/* Aviso de trabajo vencido sin cerrar */}
+            {t.vencido_sin_cerrar && (
+              <div style={{ background:"#FFF7ED", border:"1px solid #FED7AA",
+                borderRadius:"12px", padding:"10px 14px", marginBottom:"14px",
+                display:"flex", gap:"8px", alignItems:"flex-start" }}>
+                <span style={{ fontSize:"16px" }}>⏰</span>
+                <div style={{ fontFamily:"'DM Sans',sans-serif", fontSize:"12px",
+                  color:"#9A3412", lineHeight:1.45 }}>
+                  <b>Pendiente de cierre.</b> La fecha de este trabajo ya pasó. Finalizalo y
+                  cargá la boleta. Hasta cerrarlo no vas a poder tomar nuevos trabajos.
+                </div>
+              </div>
+            )}
+
             {/* Estado actual */}
             <div style={{ display:"flex", alignItems:"center",
               justifyContent:"space-between", marginBottom:"18px" }}>
@@ -1411,7 +1427,10 @@ export default function HomePlomero({ onLogout }) {
       await api.patch(`/solicitudes/${idSolicitud}/aceptar`);
       await cargarSolicitudes();
       setScreen("activos");
-    } catch (e) { console.error("Error aceptando:", e); }
+    } catch (e) {
+      // Muestra el cartel del backend (ej. "tenés un trabajo sin cerrar…").
+      alert(e.response?.data?.detail || "No se pudo aceptar el trabajo.");
+    }
   };
 
   const handleRechazar = async (idSolicitud) => {
@@ -1433,7 +1452,10 @@ export default function HomePlomero({ onLogout }) {
       await api.patch(`/solicitudes/${idSolicitud}/completar`);
       await cargarSolicitudes();
       setScreen("historial");
-    } catch (e) { console.error("Error completando:", e); }
+    } catch (e) {
+      // Ej. "Cargá la boleta antes de finalizar el trabajo."
+      alert(e.response?.data?.detail || "No se pudo finalizar el trabajo.");
+    }
   };
 
   const handleCancelar = async (idSolicitud) => {

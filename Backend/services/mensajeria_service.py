@@ -3,7 +3,9 @@ from schemas.mensaje import MensajeResponse
 from models.mensaje import Mensaje
 from models.solicitud import EstadoSolicitud
 from repositories import mensaje_repository, solicitud_repository
+from repositories import usuario_repository, plomero_repository
 from services import notificaciones_inapp
+from services import moderacion
 
 
 # Estados en los que el chat está habilitado: hay un plomero asignado y el
@@ -30,21 +32,54 @@ def enviar_mensaje(db, id_solicitud, texto, emisor_id, emisor_rol):
     if emisor_id not in [solicitud.id_usuario, solicitud.id_plomero]:
         raise HTTPException(status_code=403, detail="No autorizado")
 
+    # 🧼 Moderación: se censuran las groserías ANTES de guardar (ambos ven la
+    # versión con asteriscos). Si hubo groserías, suma una amonestación al emisor.
+    texto_censurado, hubo_groseria = moderacion.censurar(texto)
+
     mensaje = Mensaje(
         id_solicitud=id_solicitud,
         emisor_id=emisor_id,
         emisor_rol=emisor_rol,
-        texto=texto
+        texto=texto_censurado,
     )
 
     db.add(mensaje)
     db.commit()
     db.refresh(mensaje)
 
-    # Notificar a la contraparte sobre el nuevo mensaje
-    _notificar_contraparte(db, solicitud, emisor_rol, texto)
+    if hubo_groseria:
+        persona = (
+            usuario_repository.buscar_por_id(db, emisor_id)
+            if emisor_rol == "usuario"
+            else plomero_repository.buscar_por_id(db, emisor_id)
+        )
+        suspendido, aviso = moderacion.registrar_mensaje_ofensivo(db, persona)
+        # Aviso in-app al que escribió: advertencia (1ª/2ª) o suspensión (3ª).
+        _avisar_lenguaje(db, emisor_id, emisor_rol, persona, suspendido, aviso)
+
+    # Notificar a la contraparte (con el texto ya censurado)
+    _notificar_contraparte(db, solicitud, emisor_rol, texto_censurado)
 
     return MensajeResponse.model_validate(mensaje)
+
+
+def _avisar_lenguaje(db, emisor_id, emisor_rol, persona, suspendido, aviso):
+    """Notifica al que usó lenguaje ofensivo: advertencia o suspensión."""
+    if suspendido:
+        titulo = "🚫 Cuenta suspendida por lenguaje ofensivo"
+        mensaje = moderacion.mensaje_suspension(persona)
+    else:
+        titulo = "⚠️ Cuidá el lenguaje"
+        mensaje = (
+            f"Detectamos lenguaje ofensivo (aviso {aviso} de "
+            f"{moderacion.AMONESTACIONES_PARA_SUSPENSION}). "
+            "A la 3ª, la cuenta se suspende 2 meses."
+        )
+    notif = (
+        notificaciones_inapp.notificar_cliente if emisor_rol == "usuario"
+        else notificaciones_inapp.notificar_plomero
+    )
+    notif(db, emisor_id, tipo="moderacion", titulo=titulo, mensaje=mensaje)
 
 
 def _notificar_contraparte(db, solicitud, emisor_rol, texto):

@@ -1,5 +1,5 @@
 # models/plomero.py
-from sqlalchemy import Column, Integer, String, Float, Boolean, JSON, Enum as SAEnum
+from sqlalchemy import Column, Integer, String, Float, Boolean, JSON, DateTime, Enum as SAEnum
 from database import Base
 from models.personaMixin import PersonaMixin, PersonaBase
 import enum
@@ -33,6 +33,8 @@ class Plomero(PersonaMixin, Base):
     rol                        = Column(String,  default="plomero")
     cancelaciones_consecutivas = Column(Integer, default=0)
     suspendido                 = Column(Boolean, default=False)
+    suspendido_hasta           = Column(DateTime, nullable=True)   # reactivación automática
+    mensajes_ofensivos         = Column(Integer, default=0)        # groserías acumuladas
 
     def get_id(self) -> int:
         return self.id_plomero

@@ -84,6 +84,8 @@ def main():
                 reseteados += 1
             p.cancelaciones_consecutivas = 0
             p.suspendido = False
+            p.suspendido_hasta = None
+            p.mensajes_ofensivos = 0
 
         # Los clientes son todos "tuyos": arrancan de cero
         clientes = 0
@@ -92,6 +94,8 @@ def main():
             u.total_trabajos = 0
             u.cancelaciones_consecutivas = 0
             u.suspendido = False
+            u.suspendido_hasta = None
+            u.mensajes_ofensivos = 0
             clientes += 1
 
         print(f"  Plomeros ficticios restaurados: {restaurados}")

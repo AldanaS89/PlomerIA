@@ -3,9 +3,11 @@ import { useState } from "react";
 import { Eye, EyeOff } from "lucide-react";
 import api from "../services/api";
 import { useAuthStore } from "../store/authStore";
+import TerminosCondiciones from "../components/TerminosCondiciones";
 
 const Login = ({ onNav }) => {
   const setAuth  = useAuthStore((s) => s.setAuth);
+  const [verTyC,   setVerTyC]   = useState(false);
   const [showPass, setShowPass] = useState(false);
   const [email,    setEmail]    = useState("");
   const [password, setPassword] = useState("");
@@ -150,7 +152,22 @@ const Login = ({ onNav }) => {
             </button>
           </div>
         </div>
+
+        {/* Bases y condiciones */}
+        <p className="text-center text-[11px] text-slate-400 mt-6">
+          Al ingresar o registrarte aceptás las{" "}
+          <button
+            type="button"
+            onClick={() => setVerTyC(true)}
+            className="text-blue-500 font-bold hover:underline"
+          >
+            Bases y Condiciones
+          </button>
+          .
+        </p>
       </div>
+
+      <TerminosCondiciones open={verTyC} onClose={() => setVerTyC(false)} />
     </div>
   );
 };
