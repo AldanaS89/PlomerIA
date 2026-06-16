@@ -2,11 +2,11 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import api from "../services/api";
 import { useAuthStore } from "../store/authStore";
 
-// Deriva la base del WebSocket a partir de la baseURL del cliente HTTP.
-// http://localhost:8000/api  ->  ws://localhost:8000
+// Deriva la base del WebSocket a partir del origen actual de la página, para
+// que funcione detrás de cualquier proxy (nginx en producción, vite en dev).
 function wsBase() {
-  const base = api?.defaults?.baseURL || "http://localhost:8000/api";
-  return base.replace(/^http/i, "ws").replace(/\/api\/?$/i, "");
+  const proto = window.location.protocol === "https:" ? "wss" : "ws";
+  return `${proto}://${window.location.host}`;
 }
 
 function Avatar({ nombre, size = 38 }) {

@@ -66,12 +66,23 @@ def enviar_solicitud_plomero(
     descripcion:     str,
     diagnostico:     str,
     urgencia:        str,
-    presupuesto_min: float,
-    presupuesto_max: float,
+    presupuesto_min: float = None,
+    presupuesto_max: float = None,
 ):
     url           = "http://localhost:8000/solicitudes"
     link_aceptar  = f"{url}/{solicitud_id}/aceptar"
     link_rechazar = f"{url}/{solicitud_id}/rechazar"
+
+    # El presupuesto puede no venir estimado (la IA no siempre da un rango):
+    # evitamos formatear None con :,.0f (rompía el armado del email).
+    if presupuesto_min is not None and presupuesto_max is not None:
+        presupuesto_txt = f"${presupuesto_min:,.0f} – ${presupuesto_max:,.0f} ARS"
+    elif presupuesto_min is not None:
+        presupuesto_txt = f"Desde ${presupuesto_min:,.0f} ARS"
+    elif presupuesto_max is not None:
+        presupuesto_txt = f"Hasta ${presupuesto_max:,.0f} ARS"
+    else:
+        presupuesto_txt = "A convenir"
 
     cuerpo = f"""
     <h2>PlomerIA — Nueva solicitud de trabajo</h2>
@@ -86,7 +97,7 @@ def enviar_solicitud_plomero(
             <td style="padding:8px">{urgencia}</td></tr>
         <tr style="background:#F3F4F6">
             <td style="padding:8px"><b>Presupuesto estimado:</b></td>
-            <td style="padding:8px">${presupuesto_min:,.0f} – ${presupuesto_max:,.0f} ARS</td></tr>
+            <td style="padding:8px">{presupuesto_txt}</td></tr>
     </table>
     <br/>
     <a href="{link_aceptar}" style="

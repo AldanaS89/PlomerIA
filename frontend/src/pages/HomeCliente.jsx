@@ -1307,8 +1307,9 @@ function SolicitudCard({ h, onReSolicitar }) {
   const mins   = refFecha ? (ahora - new Date(refFecha)) / 1000 / 60 : 0;
   const limite = h.urgencia_ia === "URGENTE" ? 30 : 180;
   const sinRespuesta = estado === "SIN_RESPUESTA";           // todos rechazaron
+  const reasignacion = estado === "REASIGNACION_PENDIENTE";  // el plomero asignado canceló
   const vencida = estado === "PENDIENTE" && mins > limite;   // nadie respondió a tiempo
-  const necesitaAccion = sinRespuesta || vencida;
+  const necesitaAccion = sinRespuesta || vencida || reasignacion;
   const intentosRestantes = h.intentos_restantes ?? 3;
 
   const ESTADOS = [
@@ -1330,13 +1331,15 @@ function SolicitudCard({ h, onReSolicitar }) {
         <div style={{ background: "#FEF2F2", border: "1px solid #FECACA",
           borderRadius: "12px", padding: "14px 16px", marginBottom: "16px",
           display: "flex", gap: "10px", alignItems: "flex-start" }}>
-          <span style={{ fontSize: "18px" }}>{sinRespuesta ? "🙅" : "⏰"}</span>
+          <span style={{ fontSize: "18px" }}>{reasignacion ? "⚠️" : sinRespuesta ? "🙅" : "⏰"}</span>
           <div style={{ flex: 1 }}>
             <div style={{ fontFamily: "'DM Sans',sans-serif", fontWeight: "800",
               fontSize: "13px", color: "#B91C1C", marginBottom: "4px" }}>
-              {sinRespuesta
-                ? "Los profesionales rechazaron tu pedido"
-                : "Nadie respondió esta solicitud"}
+              {reasignacion
+                ? "El profesional canceló el trabajo"
+                : sinRespuesta
+                  ? "Los profesionales rechazaron tu pedido"
+                  : "Nadie respondió esta solicitud"}
             </div>
             <div style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "12px",
               color: "#7F1D1D", marginBottom: "10px" }}>
