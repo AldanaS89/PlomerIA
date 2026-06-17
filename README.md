@@ -63,7 +63,7 @@ PlomerIA/
 │       ├── components/       # ChatWidget, BoletaMateriales, DireccionConMapa
 │       ├── hooks/            # useNotificaciones
 │       └── services/         # api (axios)
-├── docs/diagramas/           # Diagramas como código (.puml / .mmd)
+├── docs/diagramas/           # Diagramas renderizados (SVG) + README
 ├── MEJORAS_Y_OFICIOS.md      # Roadmap y refactor a multi-oficio
 ├── requirements.txt
 └── README.md
@@ -100,12 +100,18 @@ uvicorn main:app --reload
 ```
 Documentación interactiva: http://localhost:8000/docs
 
-Datos de demo (una vez):
+Datos de demo (una vez). Opción rápida — carga todo de una:
+```bash
+python scripts/setup_demo.py          # profesionales + antigüedad + agendas + datos de ejemplo
+```
+O paso a paso, si preferís:
 ```bash
 python scripts/cargar_plomeros.py     # profesionales ficticios
 python scripts/simular_antiguedad.py  # antigüedad desde el lanzamiento (mar 2026)
 python scripts/generar_agendas.py     # agendas simuladas
 ```
+> Para limpiar solo los trabajos/penalizaciones sin borrar las cuentas creadas:
+> `python scripts/reset_trabajos.py` (ejecutá los scripts desde la carpeta `Backend/`).
 
 ### Frontend (Vite, puerto 5173)
 ```bash
@@ -141,12 +147,25 @@ Abrir http://localhost:5173 (el backend tiene que estar corriendo).
 - Ciclo completo de la solicitud: aceptar/rechazar, en camino, finalizar, cancelar
   (con **penalizaciones automáticas**) y reasignación.
 - **Chat** en tiempo real, **notificaciones** (in-app y email).
+- **Moderación de lenguaje** (chat y descripción del problema) con suspensión
+  automática a la 3.ª falta y reactivación al cumplir el plazo.
 - **Calificación bidireccional** (cliente↔plomero) con reputación base 5★ y cierre
-  automático a las 72 h.
+  automático a las 48 h.
 - **Boleta/presupuesto** de materiales + mano de obra, **historial con ganancias**
   (comisión 15%), **agenda** del plomero y **recontacto** a profesionales.
 
 ---
+
+## 📚 Documentación
+
+- 📄 [Informe técnico](docs/Informe_Tecnico_PlomerIA.pdf) — Arquitectura, decisiones de diseño, patrones y funcionamiento del sistema.
+- 🧪 [Guía de pruebas](docs/Guia_Pruebas_PlomerIA.pdf) — Cómo probar la app paso a paso.
+- 🖥️ [Presentación de la defensa (PDF)](docs/presentación/Presentacion%20-%20Plomeria.pdf)
+- ⏱️ [Reporte de horas](docs/reporte_horas.md) — Dedicación de cada integrante.
+- 🗂️ [Gestión del proyecto (Trello)](https://trello.com/b/mwVOOQZJ/desarrollo-de-software)
+- 🛣️ [Hoja de ruta y mejoras](MEJORAS_Y_OFICIOS.md)
+
+## 📊 Diagramas
 
 Los diagramas se ven **renderizados** al abrir el enlace (no como código).
 
@@ -181,11 +200,11 @@ Detalle completo en [`MEJORAS_Y_OFICIOS.md`](MEJORAS_Y_OFICIOS.md).
 
 | Integrante | Rol |
 |-----------|-----|
-| Aldana Benavent | A definir |
-| Luis Esteban Ordeñana | A definir |
+| Aldana Benavent | Product Owner + Desarrollo (frontend, documentación) |
+| María Florencia Iñiguez Trejo | Equipo de Desarrollo (backend, pruebas) |
+| Luis Esteban Ordeñana | Equipo de Desarrollo (frontend, deploy/Docker) |
 | Dafne Araujo | A definir |
 | Ailin Granara | A definir |
-| María Florencia Iñiguez Trejo | A definir |
 | Rocío Natalí Rolón | A definir |
 
 > 📅 Entrega: 17 de junio de 2026 · Materia: Desarrollo de Software · UNAB

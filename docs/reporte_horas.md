@@ -25,11 +25,26 @@ Materia: Desarrollo de Software · UNAB · Entrega: 17/06/2026
 ---
 
 ## María Florencia Iñiguez Trejo
-**Rol:** _(completar)_
+**Rol:** Backend
 
-- _(completar actividades)_
-
-**Horas:** _(completar)_
+- Implementación y mantenimiento del backend utilizando FastAPI.
+- Organización de la arquitectura del proyecto en capas (models, repositories, services y routers).
+- Desarrollo y mantenimiento de endpoints REST.
+- Adaptación y evolución del modelo de datos según los cambios del proyecto.
+- Implementación y corrección de relaciones entre entidades y consultas a base de datos.
+- Integración de la lógica de IA dentro del flujo de solicitudes.
+- Implementación de la lógica de negocio para solicitudes de servicio.
+- Implementación del sistema de solicitudes entre clientes y plomeros.
+- Implementación de aceptación, rechazo y cancelación reasignación de solicitudes.
+- Desarrollo y ajuste de estados del ciclo de vida de las solicitudes.
+- Participación en el diseño e implementación de la lógica de cancelaciones y penalizaciones.
+- Refactorización y corrección de errores detectados durante el desarrollo.
+- Integración de funcionalidades desarrolladas por distintos integrantes del equipo.
+- Realización de pruebas funcionales y validación de reglas de negocio.
+- Resolución de conflictos e integración de cambios mediante Git.
+  
+**Período:** 28/03/2026 – 17/06/2026 (~11–12 semanas).
+**Horas:** 100
 
 ---
 

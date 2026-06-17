@@ -52,9 +52,52 @@ class DiagnosticoIA(TypedDict):
 RANGOS = {
     "GAS_MATRICULADO":  (25000.0, 80000.0),
     "DESTAPES":         (15000.0, 45000.0),
-    "OBRA":             (40000.0, 150000.0),
+    "OBRA":             (165000.0, 460000.0),   # materiales: obra grande ~ $300k-$1.2M con severidad MAYOR
     "PLOMERIA_GENERAL": (12000.0, 50000.0),
 }
+
+
+# Severidad: ajusta el presupuesto segun la MAGNITUD del trabajo, para que un
+# arreglo menor (un cuerito) y una obra (romper pared) no cuesten lo mismo.
+SEVERIDAD_MULT = {
+    "MENOR": (0.4, 0.6),
+    "MEDIA": (1.0, 1.0),
+    "MAYOR": (1.8, 2.6),
+}
+
+_PISTAS_MENOR = [
+    "cuerito", "sello", "junta", "arandela", "empaquetadura",
+    "gotea", "gotita", "goteo", "ajustar", "apretar", "afloj",
+    "aireador", "flexible", "rosca", "un poquito", "un poco",
+]
+_PISTAS_MAYOR = [
+    "romper", "demoler", "demol", "picar", "abrir la pared", "abrir el piso",
+    "rotura", "cano nuevo", "caneria nueva", "cambiar todo", "cambiar toda",
+    "recambio total", "obra", "contrapiso", "filtracion", "humedad",
+    "reforma", "instalacion nueva",
+    "bano nuevo", "baño nuevo", "rehacer", "refacc", "obra nueva",
+    "cambiar la caneria", "cambiar la cañeria", "cambiar caneria", "cambiar cañeria",
+    "caneria vieja", "cañeria vieja", "todo completo", "instalacion completa",
+]
+
+
+def _severidad(desc: str) -> str:
+    d = desc.lower()
+    if any(k in d for k in _PISTAS_MAYOR):
+        return "MAYOR"
+    if any(k in d for k in _PISTAS_MENOR):
+        return "MENOR"
+    return "MEDIA"
+
+
+def _aplicar_severidad(pmin: float, pmax: float, desc: str):
+    """Escala el rango base segun la severidad y redondea a multiplos de 500."""
+    mmin, mmax = SEVERIDAD_MULT[_severidad(desc)]
+    rmin = round(pmin * mmin / 500) * 500
+    rmax = round(pmax * mmax / 500) * 500
+    if rmax <= rmin:
+        rmax = rmin + 5000
+    return float(rmin), float(rmax)
 
 
 def _invalido(msg: str) -> DiagnosticoIA:
@@ -96,7 +139,11 @@ def _fallback(descripcion: str) -> DiagnosticoIA:
         etiqueta = "GAS_MATRICULADO"
     elif any(k in desc for k in ["tapad", "tapa", "destap", "cloaca", "desague", "desagüe", "pozo", "rejilla"]):
         etiqueta = "DESTAPES"
-    elif any(k in desc for k in ["obra", "reforma", "filtra", "impermea", "humedad", "pared", "techo"]):
+    elif any(k in desc for k in ["obra", "reforma", "refacc", "filtra", "impermea", "humedad",
+                                 "pared", "techo", "bano nuevo", "baño nuevo", "rehacer",
+                                 "obra nueva", "cambiar toda", "cambiar la caneria",
+                                 "cambiar la cañeria", "caneria vieja", "cañeria vieja",
+                                 "todo completo", "instalacion completa"]):
         etiqueta = "OBRA"
     else:
         etiqueta = "PLOMERIA_GENERAL"
@@ -110,7 +157,8 @@ def _fallback(descripcion: str) -> DiagnosticoIA:
     else:
         urgencia = "NORMAL"
 
-    pmin, pmax = RANGOS.get(etiqueta, (15000.0, 60000.0))
+    base_min, base_max = RANGOS.get(etiqueta, (15000.0, 60000.0))
+    pmin, pmax = _aplicar_severidad(base_min, base_max, descripcion)
     return {
         "etiqueta_ia":     etiqueta,
         "oficio_ia":       oficios.oficio_de_especialidad(etiqueta) or "PLOMERIA",
@@ -168,6 +216,12 @@ Guía de urgencia:
 - URGENTE: fuga activa, olor a gas, inundación, sin agua, problema que empeora rápido.
 - NORMAL: problema molesto pero estable, cambio estético o preventivo.
 
+Guía de presupuesto (reflejá la MAGNITUD del trabajo, no solo el tipo):
+- Arreglo menor (cambiar un cuerito/sello, ajustar una rosca, una junta): monto bajo.
+- Reemplazo de una pieza (cambiar la canilla/grifería, un flexible, una llave): monto medio.
+- Obra (romper pared o piso, cañería nueva, filtración estructural, humedad): monto alto.
+Dos problemas de la misma categoría pero de distinta magnitud deben tener montos distintos.
+
 Descripción del cliente:
 \"\"\"{descripcion}\"\"\"
 
@@ -209,7 +263,7 @@ def _analizar(descripcion: str) -> DiagnosticoIA:
 
             client = genai.Client(api_key=GEMINI_API_KEY)
             respuesta = client.models.generate_content(
-                model    = "gemini-2.0-flash",
+                model    = "gemini-1.5-flash",
                 contents = _PROMPT.format(descripcion=desc_limpia),
             )
             data = _parse_json(respuesta.text or "")
@@ -228,7 +282,8 @@ def _analizar(descripcion: str) -> DiagnosticoIA:
                 if urgencia not in URGENCIAS:
                     urgencia = "NORMAL"
 
-                pmin_def, pmax_def = RANGOS.get(etiqueta, (15000.0, 60000.0))
+                base_min, base_max = RANGOS.get(etiqueta, (15000.0, 60000.0))
+                pmin_def, pmax_def = _aplicar_severidad(base_min, base_max, desc_limpia)
                 diagnostico = str(data.get("diagnostico_ia", "")).strip() \
                     or _diagnostico_fallback(etiqueta, urgencia)
 
