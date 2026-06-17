@@ -21,7 +21,13 @@ def registrar(db: Session, datos: RegistroRequest):
     if usuario_repository.buscar_por_email(db, datos.email):
         raise HTTPException(status_code=400, detail="Email ya registrado")
 
-    lat, lng = geocodificar(datos.direccion, datos.localidad)
+    # Usar las coordenadas del mapa si el usuario las confirmó; geocodificar
+    # solo como respaldo (Nominatim falla/limita del lado del servidor y caería
+    # al centroide genérico, dando distancias erróneas).
+    if datos.latitud is not None and datos.longitud is not None:
+        lat, lng = datos.latitud, datos.longitud
+    else:
+        lat, lng = geocodificar(datos.direccion, datos.localidad)
 
     usuario = Usuario(
         nombre        = datos.nombre,

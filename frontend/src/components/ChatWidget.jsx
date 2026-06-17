@@ -1,12 +1,13 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import api from "../services/api";
 import { useAuthStore } from "../store/authStore";
+import { mostrarCartelSuspension } from "../utils/suspensionModal";
 
-// Deriva la base del WebSocket a partir de la baseURL del cliente HTTP.
-// http://localhost:8000/api  ->  ws://localhost:8000
+// Deriva la base del WebSocket a partir del origen actual de la página, para
+// que funcione detrás de cualquier proxy (nginx en producción, vite en dev).
 function wsBase() {
-  const base = api?.defaults?.baseURL || "http://localhost:8000/api";
-  return base.replace(/^http/i, "ws").replace(/\/api\/?$/i, "");
+  const proto = window.location.protocol === "https:" ? "wss" : "ws";
+  return `${proto}://${window.location.host}`;
 }
 
 function Avatar({ nombre, size = 38 }) {
@@ -39,6 +40,7 @@ export default function ChatWidget({ conversaciones = [] }) {
   const [mensajes, setMensajes] = useState([]);
   const [texto, setTexto]       = useState("");
   const [conectado, setConect]  = useState(false);
+  const [avisoLenguaje, setAvisoLenguaje] = useState(false); // aviso al censurar
 
   const wsRef     = useRef(null);
   const scrollRef = useRef(null);
@@ -114,6 +116,18 @@ export default function ChatWidget({ conversaciones = [] }) {
     ws.onmessage = (ev) => {
       try {
         const m = JSON.parse(ev.data);
+        // 3ª falta → la cuenta quedó suspendida: cartel y cierre de sesión inmediato.
+        if (m.tipo === "cuenta_suspendida") {
+          mostrarCartelSuspension(m.mensaje, () => {
+            try { localStorage.removeItem("plomeria-auth"); } catch (e) { /* noop */ }
+            window.location.reload();
+          });
+          return;
+        }
+        if ((m.emisor_id === miId || m.emisor_rol === miRol) &&
+            typeof m.texto === "string" && m.texto.includes("*")) {
+          setAvisoLenguaje(true);
+        }
         setMensajes(prev => {
           if (m.id_mensaje && prev.some(x => x.id_mensaje === m.id_mensaje)) return prev;
           return [...prev, m];
@@ -140,7 +154,10 @@ export default function ChatWidget({ conversaciones = [] }) {
     } else {
       // Fallback REST si el socket no está listo
       api.post("/mensajes/", { id_solicitud: activa, texto: t })
-        .then(res => { setMensajes(prev => [...prev, res.data]); setTexto(""); scrollAbajo(); })
+        .then(res => {
+          if (typeof res.data?.texto === "string" && res.data.texto.includes("*")) setAvisoLenguaje(true);
+          setMensajes(prev => [...prev, res.data]); setTexto(""); scrollAbajo();
+        })
         .catch(() => {});
     }
   };
@@ -275,6 +292,19 @@ export default function ChatWidget({ conversaciones = [] }) {
                   );
                 })}
               </div>
+              {avisoLenguaje && (
+                <div style={{ display: "flex", alignItems: "center", gap: 8,
+                  background: "#FEF2F2", borderTop: "1px solid #FECACA",
+                  padding: "8px 12px", fontFamily: "'DM Sans',sans-serif" }}>
+                  <span style={{ fontSize: 16 }}>⚠️</span>
+                  <span style={{ flex: 1, fontSize: 11.5, color: "#B91C1C", fontWeight: 600, lineHeight: 1.3 }}>
+                    Cuidá el lenguaje. Los mensajes ofensivos suman avisos y, a la 3ª, suspenden tu cuenta 1 mes.
+                  </span>
+                  <button onClick={() => setAvisoLenguaje(false)} style={{
+                    background: "transparent", border: "none", color: "#B91C1C",
+                    cursor: "pointer", fontSize: 14, fontWeight: 800 }}>✕</button>
+                </div>
+              )}
               <div style={{ display: "flex", gap: 8, padding: 10, borderTop: "1px solid #E2E8F0" }}>
                 <input
                   value={texto}

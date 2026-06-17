@@ -12,8 +12,9 @@ from core.auth_ws import decode_token_ws
 
 from services.conection_manager import manager
 from services import mensajeria_service
+from services import moderacion
 
-from repositories import solicitud_repository
+from repositories import solicitud_repository, usuario_repository, plomero_repository
 
 
 router = APIRouter()
@@ -65,8 +66,6 @@ async def chat_ws(
         websocket
     )
 
-    print(f"WS conectado: {id_solicitud}")
-
     try:
 
         while True:
@@ -95,14 +94,27 @@ async def chat_ws(
                 }
             )
 
+            # Si ESTE mensaje gatilló la 3ª amonestación, la cuenta quedó
+            # suspendida: avisamos SOLO a quien escribió con un cartel que el
+            # front muestra y al "Aceptar" cierra la sesión en el momento.
+            persona = (
+                usuario_repository.buscar_por_id(db, user["id"])
+                if user["role"] == "usuario"
+                else plomero_repository.buscar_por_id(db, user["id"])
+            )
+            if persona and moderacion.esta_suspendido(db, persona):
+                await websocket.send_json({
+                    "tipo": "cuenta_suspendida",
+                    "mensaje": moderacion.mensaje_suspension(persona),
+                })
+                break
+
     except WebSocketDisconnect:
 
         manager.disconnect(
             id_solicitud,
             websocket
         )
-
-        print(f"WS desconectado: {id_solicitud}")
 
     finally:
         db.close()

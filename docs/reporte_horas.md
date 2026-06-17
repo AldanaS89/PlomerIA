@@ -20,7 +20,7 @@ Materia: Desarrollo de Software · UNAB · Entrega: 17/06/2026
 - Realización de los diagramas (casos de uso, clases, flujo, estados).
 
 **Período:** 28/03/2026 – 17/06/2026 (~11–12 semanas).
-**Horas:** ≈ 20 h/semana → **≈ 230 h** en total (estimado; pudo ser más).
+**Horas:** ≈ 20 h/semana → **≈ 280 h** en total (estimado; pudo ser más).
 
 ---
 

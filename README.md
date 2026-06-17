@@ -148,10 +148,23 @@ Abrir http://localhost:5173 (el backend tiene que estar corriendo).
 
 ---
 
-## 📊 Documentación y diagramas
+Los diagramas se ven **renderizados** al abrir el enlace (no como código).
 
-- 📁 **Índice de diagramas:** [`docs/diagramas/`](docs/diagramas/) — flujo y estados se ven renderizados ahí.
-- 🧩 [Casos de uso](docs/diagramas/casos_de_uso.puml) · 🏛️ [Clases (UML)](docs/diagramas/diagrama_clases.puml) · 🔄 [Flujo de solicitud](docs/diagramas/flujo_solicitud.mmd) · 🔁 [Estados](docs/diagramas/estados_solicitud.mmd)
+**Diagrama de flujo** (por sub-flujo):
+
+1. [Acceso, registro y recuperación de clave](docs/diagramas/0_flujo_acceso.drawio.svg) — Pantalla principal, login, registro de cliente y de plomero (por pasos), y bloqueo de cuentas suspendidas.
+2. [Búsqueda y solicitud (cliente)](docs/diagramas/1_flujo_busqueda_solicitud.svg) — Descripción del problema, diagnóstico IA, recomendación de 5, elección de turno y envío.
+3. [Ciclo de aceptación / reasignación](docs/diagramas/2_ciclo_aceptacion.drawio.svg) — Invitación a los profesionales, aceptación, rechazo y vuelta a buscar.
+4. [Trabajo, finalización y calificación](docs/diagramas/3_Trabajo_finalizacioin_calificacion.drawio.svg) — En camino, boleta, finalización, ganancias y calificación mutua.
+5. [Cancelación y penalidades](docs/diagramas/4_cancelacion_penalidades.drawio.svg) — Quién cancela, penalizaciones y reasignación.
+6. [Panel del plomero](docs/diagramas/5_flujo_plomero.drawio.svg) — Solicitudes, trabajos en curso, agenda, ganancias e historial.
+7. [Moderación de lenguaje y suspensiones](docs/diagramas/6_moderacion_lenguaje_suspension.drawio.svg) — Filtro de groserías, avisos, suspensión y reactivación automática.
+
+**Otros diagramas:**
+
+- 🏛️ [UML de clases](docs/diagramas/Diagrama_UML.drawio.svg) — Modelo de dominio: herencia (PersonaMixin), contrato abstracto (PersonaBase), entidades y relaciones.
+- 🧩 [Casos de uso](docs/diagramas/Casos_de_uso.drawio.svg) — Acciones de Cliente, Plomero y Sistema/IA.
+- 📁 Carpeta de diagramas: [`docs/diagramas/`](docs/diagramas/)
 - 🗂️ **Gestión del proyecto (Trello):** https://trello.com/b/mwVOOQZJ/desarrollo-de-software
 
 ---

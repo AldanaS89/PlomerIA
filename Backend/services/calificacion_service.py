@@ -176,7 +176,7 @@ def _incrementar_cancelaciones(
     ) + 1
 
     if persona.cancelaciones_consecutivas >= CANCELACIONES_PARA_SUSPENSION:
-        # Suspensión temporal con reactivación automática (1 mes).
+        # Suspensión temporal con reactivación automática (2 meses).
         from services import moderacion
         moderacion.suspender(db, persona, moderacion.DIAS_SUSPENSION_CANCELACIONES)
         logger.warning(
@@ -184,6 +184,21 @@ def _incrementar_cancelaciones(
             type(persona).__name__, id_actor,
             persona.cancelaciones_consecutivas,
         )
+        # Aviso in-app al usuario suspendido.
+        try:
+            from services import notificaciones_inapp
+            notif = (
+                notificaciones_inapp.notificar_cliente if rol_actor == "cliente"
+                else notificaciones_inapp.notificar_plomero
+            )
+            notif(
+                db, id_actor,
+                tipo="suspension",
+                titulo="🚫 Cuenta suspendida",
+                mensaje="Cancelaste 3 trabajos seguidos. " + moderacion.mensaje_suspension(persona),
+            )
+        except Exception:
+            pass
     else:
         db.commit()
 

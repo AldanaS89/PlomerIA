@@ -73,7 +73,7 @@ def _avisar_lenguaje(db, emisor_id, emisor_rol, persona, suspendido, aviso):
         mensaje = (
             f"Detectamos lenguaje ofensivo (aviso {aviso} de "
             f"{moderacion.AMONESTACIONES_PARA_SUSPENSION}). "
-            "A la 3ª, la cuenta se suspende 2 meses."
+            "A la 3ª, la cuenta se suspende 1 mes."
         )
     notif = (
         notificaciones_inapp.notificar_cliente if emisor_rol == "usuario"

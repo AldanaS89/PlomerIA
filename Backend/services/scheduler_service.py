@@ -29,6 +29,7 @@ from services.calificacion_service import (
     HORAS_ALERTA_CALIFICACION,
     _recalcular_promedio,
 )
+from services import solicitud_service
 
 logger = logging.getLogger(__name__)
 
@@ -208,11 +209,12 @@ def _run_scheduler() -> None:
             cerradas  = _cerrar_calificaciones_vencidas(db)
             alertadas = _enviar_alertas_recordatorio(db)
             limpiadas = _limpiar_notificaciones_viejas(db)
+            sin_resp  = solicitud_service.cerrar_pendientes_sin_respuesta(db)
 
-            if cerradas or alertadas or limpiadas:
+            if cerradas or alertadas or limpiadas or sin_resp:
                 logger.info(
-                    "Scheduler: %s cerradas, %s alertas, %s notificaciones viejas borradas",
-                    cerradas, alertadas, limpiadas,
+                    "Scheduler: %s cerradas, %s alertas, %s notif viejas, %s sin respuesta",
+                    cerradas, alertadas, limpiadas, sin_resp,
                 )
         except Exception as e:
             logger.error("Error en scheduler: %s", e)

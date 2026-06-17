@@ -79,6 +79,8 @@ class Solicitud(Base):
 
     turno_solicitado = Column(String,   nullable=True)
     fecha_trabajo    = Column(DateTime, nullable=True)
+    # Momento en que el plomero marcó EN CAMINO (para exigir 2hs antes de finalizar).
+    fecha_en_camino  = Column(DateTime, nullable=True)
 
     fecha_ultimo_envio    = Column(DateTime, nullable=True)
     intentos_reasignacion = Column(Integer,  default=0)

@@ -22,10 +22,13 @@ class Plomero(PersonaMixin, Base):
     especialidad               = Column(SAEnum(EspecialidadEnum))
     especialidades             = Column(JSON)
     otra_especialidad          = Column(String, nullable=True)
-    genero                     = Column(String, index=True)
-    atiende_urgencias          = Column(Boolean, default=False, index=True)  
-    disponible_ahora           = Column(Boolean, default=True , index=True)
-    puntuacion                 = Column(Float,   default=5.0, index = True)
+    genero                     = Column(String)
+    atiende_urgencias          = Column(Boolean, default=False)
+    disponible_ahora           = Column(Boolean, default=True)
+    # Si tiene un trabajo activo, queda no disponible hasta finalizar; al finalizar
+    # se libera desde la hora próxima (disponible_desde). Null = sin restricción.
+    disponible_desde           = Column(DateTime, nullable=True)
+    puntuacion                 = Column(Float,   default=5.0)
     total_trabajos             = Column(Integer, default=0)
     matricula_gas              = Column(Boolean, default=False)
     foto_perfil_path           = Column(String,  nullable=True)

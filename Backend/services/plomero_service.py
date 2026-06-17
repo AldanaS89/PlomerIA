@@ -319,7 +319,7 @@ def ordenar_por_cercania_y_puntuacion(plomeros, dist_fn, relevancia_fn, limite=5
     """
     Ordena los plomeros por TRAMOS de cercanía y, dentro de cada tramo, por
     relevancia y puntuación. Tramos: <5km (0), 5–10km (1), >10km (2).
-    Prioridad: 1° cercanía, 2° relevancia, 3° puntuación, 4° distancia exacta.
+    Prioridad: 1° cercanía, 2° puntuación, 3° relevancia (oficio), 4° distancia exacta.
 
     Función PURA (sin DB ni red): se le pasan `dist_fn(p)` y `relevancia_fn(p)`,
     para poder probarla de forma unitaria con objetos simulados.
@@ -334,7 +334,7 @@ def ordenar_por_cercania_y_puntuacion(plomeros, dist_fn, relevancia_fn, limite=5
 
     return sorted(
         plomeros,
-        key=lambda p: (tramo(p), -relevancia_fn(p), -p.puntuacion, dist_fn(p)),
+        key=lambda p: (tramo(p), -p.puntuacion, -relevancia_fn(p), dist_fn(p)),
     )[:limite]
 
 
@@ -372,10 +372,18 @@ def sugerir(
     # Claves para hoy + mañana + pasado mañana (nivel 2)
     keys_3dias = keys_urgencia | {f"{dia_pasado}_{f}" for f in FRANJAS}
 
+    def _disp_ef(p):
+        # "Disponible ahora" efectivo: marcado disponible, o ya pasó la hora desde
+        # la que se libera tras finalizar un trabajo (disponible_desde).
+        if getattr(p, "disponible_ahora", False):
+            return True
+        dd = getattr(p, "disponible_desde", None)
+        return dd is not None and datetime.now() >= dd
+
     def tiene_slot(p, claves):
         """Verifica si el plomero tiene slot en las claves dadas."""
         if not p.agenda:
-            return p.disponible_ahora
+            return _disp_ef(p)
         return any(p.agenda.get(k) for k in claves)
 
     def dist(p):
@@ -387,7 +395,7 @@ def sugerir(
         score = 0
         if etiqueta and p.especialidades and etiqueta in p.especialidades:
             score += 3
-        if es_urgente and p.atiende_urgencias and p.disponible_ahora:
+        if es_urgente and p.atiende_urgencias and _disp_ef(p):
             score += 5
         return score
 
@@ -409,7 +417,7 @@ def sugerir(
         # Disponibilidad de más a menos estricta; acumulamos hasta llegar a 5.
         inmediatos = [
             p for p in universo
-            if p.disponible_ahora or tiene_slot(p, keys_urgencia)    # ya, o franja hoy/mañana
+            if _disp_ef(p) or tiene_slot(p, keys_urgencia)    # ya, o franja hoy/mañana
         ]
         tres_dias = [p for p in universo if tiene_slot(p, keys_3dias)]  # hasta pasado mañana
 
@@ -445,10 +453,36 @@ def sugerir(
     # Excluir a los ya contactados/rechazados ANTES de recortar a 5, así el
     # resultado siempre se completa con el resto del pool (no quedan huecos).
     excl = set(excluidos or [])
+
+    # Plomeros OCUPADOS AHORA con un trabajo sin finalizar: no son opcion hasta
+    # cerrarlo. EN_CAMINO siempre cuenta; EN_PROGRESO solo si el trabajo es de HOY
+    # o ya paso. Un trabajo agendado a FUTURO NO bloquea: el plomero sigue libre
+    # para otros horarios y para ser recomendado.
+    ahora_dt = datetime.now()
+    hoy_date = ahora_dt.date()
+    ocupados_activos = set()
+    for pid, est, ft in db.query(
+        Solicitud.id_plomero, Solicitud.estado, Solicitud.fecha_trabajo
+    ).filter(
+        Solicitud.id_plomero.isnot(None),
+        Solicitud.estado.in_([EstadoSolicitud.EN_PROGRESO, EstadoSolicitud.EN_CAMINO]),
+    ).all():
+        if est == EstadoSolicitud.EN_CAMINO:
+            ocupados_activos.add(pid)
+        elif ft is None or ft.date() <= hoy_date:
+            ocupados_activos.add(pid)
+
     vistos, unicos = set(), []
     for p in plomeros:
         if p.id_plomero in excl:
             continue
+        if getattr(p, "suspendido", False):
+            continue                      # cuenta suspendida → no se ofrece
+        if p.id_plomero in ocupados_activos:
+            continue                      # tiene un trabajo activo sin finalizar
+        dd = getattr(p, "disponible_desde", None)
+        if dd is not None and ahora_dt < dd:
+            continue                      # recién finalizó: disponible desde la hora próxima
         if p.id_plomero not in vistos:
             vistos.add(p.id_plomero)
             unicos.append(p)
@@ -514,6 +548,9 @@ def cambiar_disponibilidad(db: Session, id_plomero: int, disponible: bool):
     plomero = plomero_repository.actualizar_disponibilidad(db, id_plomero, disponible)
     if not plomero:
         raise HTTPException(status_code=404, detail="Plomero no encontrado")
+    # Toggle manual: anula la liberación programada (manda lo que decide el plomero).
+    plomero.disponible_desde = None
+    db.commit()
     return {"mensaje": "Disponibilidad actualizada", "disponible_ahora": plomero.disponible_ahora}
 
 
