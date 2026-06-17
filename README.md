@@ -160,7 +160,7 @@ Abrir http://localhost:5173 (el backend tiene que estar corriendo).
 
 - 📄 [Informe técnico](docs/Informe_Tecnico_PlomerIA.pdf) — Arquitectura, decisiones de diseño, patrones y funcionamiento del sistema.
 - 🧪 [Guía de pruebas](docs/Guia_Pruebas_PlomerIA.pdf) — Cómo probar la app paso a paso.
-- 🖥️ [Presentación de la defensa (PDF)](docs/presentación/Presentacion - Plomeria.pdf)
+- 🖥️ [Presentación de la defensa (PDF)](docs/presentación/Presentacion%20-%20Plomeria.pdf)
 - ⏱️ [Reporte de horas](docs/reporte_horas.md) — Dedicación de cada integrante.
 - 🗂️ [Gestión del proyecto (Trello)](https://trello.com/b/mwVOOQZJ/desarrollo-de-software)
 - 🛣️ [Hoja de ruta y mejoras](MEJORAS_Y_OFICIOS.md)
