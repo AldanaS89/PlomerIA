@@ -1,31 +1,33 @@
-# ==========================================
-# Servidor y API (Backend)
-# ==========================================
-fastapi
-uvicorn
-sqlalchemy
-python-multipart
+# Dependencias de produccion del backend (FastAPI).
+# Este es el archivo que instala la imagen Docker (ver Backend/Dockerfile).
+# Instalar en local con:  pip install -r requirements.txt
 
-# ==========================================
-# Autenticación JWT y Seguridad
-# ==========================================
-python-jose[cryptography]
-passlib[bcrypt]
+# --- Framework web y servidor ---
+fastapi==0.135.3
+uvicorn==0.42.0
+python-multipart==0.0.22       # subida de archivos (fotos de perfil)
+websockets==16.0               # chat en tiempo real (WebSocket)
 
-# ==========================================
-# Inteligencia Artificial y Mapas
-# ==========================================
-google-generativeai
-geopy
+# --- Base de datos ---
+sqlalchemy==2.0.48
 
-# ==========================================
-# Interfaz de la App (Frontend - Kivy)
-# ==========================================
-kivy
-kivymd
-requests
+# --- Validacion de datos ---
+pydantic[email]==2.13.3        # el extra [email] arrastra email-validator (valida EmailStr)
+email-validator==2.3.0
 
-# ==========================================
-# Utilidades y Variables de Entorno
-# ==========================================
-python-dotenv
+# --- Autenticacion ---
+python-jose==3.5.0             # tokens JWT
+passlib==1.7.4                 # hash de contrasenas
+bcrypt==4.0.1                  # backend de hashing que usa passlib
+
+# --- Integraciones / utilidades ---
+google-genai==2.7.0            # IA (Gemini, SDK nuevo)
+geopy==2.4.1                   # geocodificacion / recomendacion por cercania
+httpx==0.28.1                  # cliente HTTP
+tenacity==9.1.4                # reintentos
+python-dotenv==1.2.2           # carga de variables de entorno (.env)
+
+# --- Procesamiento de imagenes ---
+pillow==12.2.0
+opencv-python-headless==4.13.0.92
+numpy==2.4.4                   # usado directamente y requerido por opencv
