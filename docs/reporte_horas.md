@@ -44,7 +44,7 @@ Materia: Desarrollo de Software · UNAB · Entrega: 17/06/2026
 - Resolución de conflictos e integración de cambios mediante Git.
   
 **Período:** 28/03/2026 – 17/06/2026 (~11–12 semanas).
-**Horas:** 170_
+**Horas:** 100
 
 ---
 
