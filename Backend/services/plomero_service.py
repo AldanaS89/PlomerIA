@@ -454,16 +454,23 @@ def sugerir(
     # resultado siempre se completa con el resto del pool (no quedan huecos).
     excl = set(excluidos or [])
 
-    # Plomeros con un trabajo ACTIVO sin finalizar: NO son opción en las
-    # recomendaciones hasta cerrarlo. Agendar con un plomero ocupado o inactivo
-    # solo es posible recontactándolo desde "Finalizados" (le llega por mail).
-    ocupados_activos = {
-        r[0] for r in db.query(Solicitud.id_plomero).filter(
-            Solicitud.id_plomero.isnot(None),
-            Solicitud.estado.in_([EstadoSolicitud.EN_PROGRESO, EstadoSolicitud.EN_CAMINO]),
-        ).all()
-    }
+    # Plomeros OCUPADOS AHORA con un trabajo sin finalizar: no son opcion hasta
+    # cerrarlo. EN_CAMINO siempre cuenta; EN_PROGRESO solo si el trabajo es de HOY
+    # o ya paso. Un trabajo agendado a FUTURO NO bloquea: el plomero sigue libre
+    # para otros horarios y para ser recomendado.
     ahora_dt = datetime.now()
+    hoy_date = ahora_dt.date()
+    ocupados_activos = set()
+    for pid, est, ft in db.query(
+        Solicitud.id_plomero, Solicitud.estado, Solicitud.fecha_trabajo
+    ).filter(
+        Solicitud.id_plomero.isnot(None),
+        Solicitud.estado.in_([EstadoSolicitud.EN_PROGRESO, EstadoSolicitud.EN_CAMINO]),
+    ).all():
+        if est == EstadoSolicitud.EN_CAMINO:
+            ocupados_activos.add(pid)
+        elif ft is None or ft.date() <= hoy_date:
+            ocupados_activos.add(pid)
 
     vistos, unicos = set(), []
     for p in plomeros:
