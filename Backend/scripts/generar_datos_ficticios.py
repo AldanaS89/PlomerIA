@@ -260,21 +260,25 @@ def main():
             # El total del perfil = lo realmente generado (todo coincide)
             p.total_trabajos = generados
 
-            # ── FUTUROS: hasta 2 franjas de su agenda quedan ocupadas ─────
-            claves = [k for k, v in (p.agenda or {}).items() if v]
-            rnd.shuffle(claves)
-            for clave in claves[:2]:
-                try:
-                    dia, franja = clave.split("_", 1)
-                except ValueError:
-                    continue
-                hora = FRANJA_HORA.get(franja, 9)
-                ft = _proxima_fecha(dia, hora)
-                s = _crear_trabajo(db, p, rnd.choice(clientes), ft, esp, rnd,
-                                   EstadoSolicitud.EN_PROGRESO)
-                s.turno_solicitado = f"{dia}_{franja}_{hora}"
-                s.fecha = ahora
-                total_futuros += 1
+            # ── FUTUROS: solo ~20% de los plomeros queda OCUPADO con un trabajo
+            # en curso. La recomendación oculta a todo plomero con un trabajo
+            # activo, así que ocupar a TODOS dejaría el marketplace vacío.
+            # Determinístico por id (rnd está sembrado con p.id_plomero).
+            if rnd.random() < 0.20:
+                claves = [k for k, v in (p.agenda or {}).items() if v]
+                rnd.shuffle(claves)
+                for clave in claves[:1]:
+                    try:
+                        dia, franja = clave.split("_", 1)
+                    except ValueError:
+                        continue
+                    hora = FRANJA_HORA.get(franja, 9)
+                    ft = _proxima_fecha(dia, hora)
+                    s = _crear_trabajo(db, p, rnd.choice(clientes), ft, esp, rnd,
+                                       EstadoSolicitud.EN_PROGRESO)
+                    s.turno_solicitado = f"{dia}_{franja}_{hora}"
+                    s.fecha = ahora
+                    total_futuros += 1
 
         db.commit()
         print(f"Datos ficticios: {len(plomeros)} plomeros, "

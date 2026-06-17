@@ -1,3 +1,5 @@
+import math
+
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 from utils.geolocalizacion import distancia_km
@@ -56,48 +58,101 @@ def actualizar_password(db: Session, id: int, nuevo_hash: str) -> None:
         plomero.reset_token = None
         db.commit()
 
+# def buscar_para_solicitud(
+#     db: Session,
+#     especialidades: Optional[str] = None,
+#     lat_usuario: Optional[float] = None,
+#     lon_usuario: Optional[float] = None,
+#     atiende_urgencias: bool = False,
+#     genero: Optional[str] = None,
+#     radio_km: Optional[float] = None,
+#     solo_disponibles: bool = True,
+#     limite: int = 5,
+#     excluir_ids: Optional[set[str]] = None,   # 👈 NUEVO
+# ) -> list[Plomero]:
+
+#     query = db.query(Plomero)
+
+#     if solo_disponibles:
+#         query = query.filter(Plomero.disponible_ahora == True)
+
+#     if especialidades:
+#         query = query.filter(Plomero.especialidades.contains([especialidades]))
+
+#     if atiende_urgencias:
+#         query = query.filter(Plomero.atiende_urgencias == True)
+
+#     if genero and genero != "todos":
+#         query = query.filter(Plomero.genero == genero)
+
+#     plomeros = query.order_by(Plomero.puntuacion.desc()).all()
+
+#     # ─── filtro geográfico ─────────────────────────────
+#     if lat_usuario is not None and lon_usuario is not None and radio_km is not None:
+#         plomeros = [
+#             p for p in plomeros
+#             if p.latitud and p.longitud and
+#             distancia_km(lat_usuario, lon_usuario, p.latitud, p.longitud) <= radio_km
+#         ]
+
+#     # ─── EXCLUSIÓN MARKETPLACE (CLAVE) ────────────────
+#     if excluir_ids:
+#         plomeros = [
+#             p for p in plomeros
+#             if str(p.id_plomero) not in excluir_ids
+#         ]
+
+#     return plomeros[:limite]
 def buscar_para_solicitud(
-    db: Session,
-    especialidades: Optional[str] = None,
-    lat_usuario: Optional[float] = None,
-    lon_usuario: Optional[float] = None,
-    atiende_urgencias: bool = False,
-    genero: Optional[str] = None,
-    radio_km: Optional[float] = None,
-    solo_disponibles: bool = True,
-    limite: int = 5,
-    excluir_ids: Optional[set[str]] = None,   # 👈 NUEVO
+    db:                Session,
+    especialidades:    Optional[str]   = None,
+    lat_usuario:       Optional[float] = None,
+    lon_usuario:       Optional[float] = None,
+    atiende_urgencias: bool            = False,
+    genero:            Optional[str]   = None,
+    radio_km:          Optional[float] = None,
+    solo_disponibles:  bool            = True,
+    limite:            int             = 5,
+    excluir_ids:       Optional[set]   = None,
 ) -> list[Plomero]:
 
     query = db.query(Plomero)
 
+    # ── Filtros en SQL ────────────────────────────────────────
     if solo_disponibles:
         query = query.filter(Plomero.disponible_ahora == True)
-
     if especialidades:
         query = query.filter(Plomero.especialidades.contains([especialidades]))
-
     if atiende_urgencias:
         query = query.filter(Plomero.atiende_urgencias == True)
-
     if genero and genero != "todos":
         query = query.filter(Plomero.genero == genero)
 
-    plomeros = query.order_by(Plomero.puntuacion.desc()).all()
+    # Exclusión en SQL — evita traer filas innecesarias
+    if excluir_ids:
+        ids_int = [int(i) for i in excluir_ids if str(i).isdigit()]
+        if ids_int:
+            query = query.filter(Plomero.id_plomero.notin_(ids_int))
 
-    # ─── filtro geográfico ─────────────────────────────
+    # Pre-filtro geográfico en SQL — bounding box aproximado
+    if lat_usuario is not None and lon_usuario is not None and radio_km is not None:
+        delta_lat = radio_km / 111.0
+        delta_lon = radio_km / (111.0 * max(abs(math.cos(math.radians(lat_usuario))), 0.01))
+        query = query.filter(
+            Plomero.latitud.between(lat_usuario  - delta_lat, lat_usuario  + delta_lat),
+            Plomero.longitud.between(lon_usuario - delta_lon, lon_usuario + delta_lon),
+        )
+
+    # Ordenar y limitar en SQL — no en Python
+    # Pedimos el doble del límite para tener margen para el filtro exacto
+    plomeros = query.order_by(Plomero.puntuacion.desc()).limit(limite * 2).all()
+
+    # ── Filtro geográfico exacto (Haversine) sobre el subconjunto reducido ──
     if lat_usuario is not None and lon_usuario is not None and radio_km is not None:
         plomeros = [
             p for p in plomeros
             if p.latitud and p.longitud and
             distancia_km(lat_usuario, lon_usuario, p.latitud, p.longitud) <= radio_km
-        ]
-
-    # ─── EXCLUSIÓN MARKETPLACE (CLAVE) ────────────────
-    if excluir_ids:
-        plomeros = [
-            p for p in plomeros
-            if str(p.id_plomero) not in excluir_ids
         ]
 
     return plomeros[:limite]

@@ -1,0 +1,31 @@
+# ==========================================
+# Servidor y API (Backend)
+# ==========================================
+fastapi
+uvicorn
+sqlalchemy
+python-multipart
+
+# ==========================================
+# Autenticación JWT y Seguridad
+# ==========================================
+python-jose[cryptography]
+passlib[bcrypt]
+
+# ==========================================
+# Inteligencia Artificial y Mapas
+# ==========================================
+google-generativeai
+geopy
+
+# ==========================================
+# Interfaz de la App (Frontend - Kivy)
+# ==========================================
+kivy
+kivymd
+requests
+
+# ==========================================
+# Utilidades y Variables de Entorno
+# ==========================================
+python-dotenv

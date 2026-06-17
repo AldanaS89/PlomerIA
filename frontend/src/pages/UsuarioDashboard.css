@@ -1,0 +1,153 @@
+/* src/pages/UsuarioDashboard.css */
+.page-body {
+  max-width: 700px;
+  margin: 0 auto;
+  padding: 36px 20px 80px;
+}
+.hero-title {
+  font-size: 1.8rem;
+  font-weight: 700;
+  letter-spacing: -.5px;
+  margin-bottom: 6px;
+}
+.hero-sub {
+  color: var(--gray-600);
+  margin-bottom: 26px;
+  font-size: .95rem;
+}
+.section-title {
+  font-size: .76rem;
+  font-weight: 700;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  color: var(--gray-400);
+  margin-bottom: 14px;
+  margin-top: 32px;
+}
+
+/* search card */
+.search-card {
+  background: #fff;
+  border-radius: 16px;
+  padding: 24px;
+  box-shadow: var(--shadow);
+  margin-bottom: 32px;
+}
+.search-label {
+  font-size: .76rem;
+  font-weight: 700;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--gray-600);
+  margin-bottom: 10px;
+  display: block;
+}
+textarea.search-input {
+  width: 100%;
+  border: 1.5px solid var(--gray-200);
+  border-radius: 10px;
+  padding: 13px 14px;
+  font-size: .95rem;
+  font-family: inherit;
+  resize: none;
+  outline: none;
+  transition: .15s;
+  color: var(--text);
+}
+textarea.search-input:focus {
+  border-color: var(--blue);
+  box-shadow: 0 0 0 3px rgba(29,110,245,.1);
+}
+.search-options {
+  margin-top: 12px;
+  margin-bottom: 4px;
+}
+.solo-mujeres {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: .88rem;
+  color: var(--gray-600);
+  cursor: pointer;
+  user-select: none;
+}
+.solo-mujeres input { accent-color: var(--blue); width: 15px; height: 15px; }
+.search-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 14px;
+}
+.char-count { font-size: .83rem; color: var(--gray-400); }
+.btn-search {
+  background: var(--navy);
+  color: #fff;
+  border: none;
+  border-radius: 10px;
+  padding: 11px 22px;
+  font-size: .9rem;
+  font-weight: 600;
+  font-family: inherit;
+  transition: .15s;
+}
+.btn-search:hover:not(:disabled) { background: var(--navy2); }
+.btn-search:disabled {
+  background: var(--gray-200);
+  color: var(--gray-400);
+  cursor: not-allowed;
+}
+
+/* plomero list */
+.plomero-list { display: flex; flex-direction: column; gap: 10px; }
+.plomero-item {
+  background: #fff;
+  border-radius: 12px;
+  padding: 16px 18px;
+  box-shadow: var(--shadow);
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  transition: .15s;
+  animation: fadeIn .2s ease;
+}
+.plomero-item:hover {
+  box-shadow: var(--shadow-md);
+  transform: translateY(-1px);
+}
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.avatar {
+  width: 44px; height: 44px;
+  border-radius: 12px;
+  display: flex; align-items: center; justify-content: center;
+  font-weight: 700; font-size: .88rem;
+  flex-shrink: 0; color: #fff;
+}
+.plomero-info { flex: 1; min-width: 0; }
+.plomero-name { font-weight: 600; font-size: .95rem; margin-bottom: 2px; }
+.plomero-spec { font-size: .83rem; color: var(--gray-600); }
+.plomero-rating { color: var(--amber); font-weight: 600; }
+.btn-contactar {
+  background: var(--blue-light);
+  color: var(--blue);
+  border: none;
+  border-radius: 8px;
+  padding: 8px 16px;
+  font-size: .83rem;
+  font-weight: 600;
+  font-family: inherit;
+  transition: .15s;
+  white-space: nowrap;
+}
+.btn-contactar:hover { background: var(--blue); color: #fff; }
+
+/* empty */
+.empty-state {
+  text-align: center;
+  padding: 80px 20px;
+  color: var(--gray-400);
+}
+.empty-state span { font-size: 3rem; display: block; margin-bottom: 14px; }
+.empty-state p { font-size: 1rem; }

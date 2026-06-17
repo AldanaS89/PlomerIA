@@ -1,0 +1,42 @@
+# PlomerIA — stack de producción autocontenido.
+# Levantar con:  docker compose up -d --build
+#
+# Arquitectura:
+#   Internet -> Cloudflare -> cloudflared (este stack) -> frontend (nginx)
+#                                                          /        \
+#                                                   estáticos     /api -> backend
+#
+# Nada se publica en puertos del host: cloudflared llega al frontend por la red
+# interna de Docker (service name "frontend"). Esto NO toca tu nginx/gitea del host.
+
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: Backend/Dockerfile
+    env_file:
+      - ./Backend/.env          # SECRET_KEY y GEMINI_API_KEY
+    environment:
+      # 4 barras = ruta absoluta /data/plomeria.db (persistida en el volumen)
+      - DATABASE_URL=sqlite:////data/plomeria.db
+    volumes:
+      - plomeria_db:/data
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    command: tunnel --no-autoupdate run --token ${CLOUDFLARE_TUNNEL_TOKEN}
+    depends_on:
+      - frontend
+    restart: unless-stopped
+
+volumes:
+  plomeria_db:
