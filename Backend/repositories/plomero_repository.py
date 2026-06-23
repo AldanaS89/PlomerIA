@@ -1,6 +1,15 @@
+import math
+
+from sqlalchemy import func
 from sqlalchemy.orm import Session
+from utils.geolocalizacion import distancia_km
 from models.plomero import Plomero
 from typing import Optional
+
+# Radios de búsqueda por nivel
+RADIO_KM_1 = 5.0   # Nivel 1 — cercanía ideal
+RADIO_KM_2 = 10.0  # Nivel 2 — ampliado
+# Nivel 3 — sin límite de radio
 
 def buscar_por_email(db: Session, email: str) -> Plomero | None:
     return db.query(Plomero).filter(Plomero.email == email).first()
@@ -29,60 +38,183 @@ def actualizar_disponibilidad(db: Session, id: int, disponible: bool) -> Plomero
 def actualizar_puntuacion(db: Session, id: int, nueva_puntuacion: float, total: int) -> None:
     plomero = buscar_por_id(db, id)
     if plomero:
-        plomero.puntuacion     = nueva_puntuacion
+        plomero.puntuacion = nueva_puntuacion
         plomero.total_trabajos = total
         db.commit()
 
-def buscar_disponible_para(
-    db: Session,
-    especialidad: Optional[str] = None,
-    localidad: Optional[str] = None,
-    atiende_urgencias: Optional[bool] = None,
-) -> Plomero | None:
-    query = db.query(Plomero).filter(Plomero.disponible_ahora == True)
-    if especialidad:
-        query = query.filter(Plomero.especialidad == especialidad)
-    if localidad:
-        query = query.filter(Plomero.localidad == localidad)
-    if atiende_urgencias is True:
-        query = query.filter(Plomero.atiende_urgencias == True)
-    return query.order_by(Plomero.puntuacion.desc()).first()
+def guardar_reset_token(db: Session, id: int, token: str) -> None:
+    plomero = buscar_por_id(db, id)
+    if plomero:
+        plomero.reset_token = token
+        db.commit()
 
-
-def filtrar(
-    db:                Session,
-    localidad:         Optional[str]  = None,
-    genero:            Optional[str]  = None,
-    especialidad:      Optional[str]  = None,
-    atiende_urgencias: Optional[bool] = None,
-    solo_disponibles:  bool           = True,
-) -> list[Plomero]:
-    query = db.query(Plomero)
-
-    if solo_disponibles:
-        query = query.filter(Plomero.disponible_ahora == True)
-    if localidad:
-        query = query.filter(Plomero.localidad == localidad)
-    if genero:
-        query = query.filter(Plomero.genero == genero)
-    if especialidad:
-        query = query.filter(Plomero.especialidad == especialidad)
-    if atiende_urgencias is not None:
-        query = query.filter(Plomero.atiende_urgencias == atiende_urgencias)
-
-    # Ordenar por puntuación descendente
-    return query.order_by(Plomero.puntuacion.desc()).all()
-
-def guardar_reset_token(db: Session, id_plomero: int, token: str) -> None:
-    plomero = buscar_por_id(db, id_plomero)
-    plomero.reset_token = token
-    db.commit()
-
-def buscar_por_reset_token(db: Session, token: str):
+def buscar_por_reset_token(db: Session, token: str) -> Plomero | None:
     return db.query(Plomero).filter(Plomero.reset_token == token).first()
 
-def actualizar_password(db: Session, id_plomero: int, nuevo_hash: str) -> None:
-    plomero = buscar_por_id(db, id_plomero)
-    plomero.password_hash = nuevo_hash
-    plomero.reset_token   = None
-    db.commit()
+def actualizar_password(db: Session, id: int, nuevo_hash: str) -> None:
+    plomero = buscar_por_id(db, id)
+    if plomero:
+        plomero.password_hash = nuevo_hash
+        plomero.reset_token = None
+        db.commit()
+
+# def buscar_para_solicitud(
+#     db: Session,
+#     especialidades: Optional[str] = None,
+#     lat_usuario: Optional[float] = None,
+#     lon_usuario: Optional[float] = None,
+#     atiende_urgencias: bool = False,
+#     genero: Optional[str] = None,
+#     radio_km: Optional[float] = None,
+#     solo_disponibles: bool = True,
+#     limite: int = 5,
+#     excluir_ids: Optional[set[str]] = None,   # 👈 NUEVO
+# ) -> list[Plomero]:
+
+#     query = db.query(Plomero)
+
+#     if solo_disponibles:
+#         query = query.filter(Plomero.disponible_ahora == True)
+
+#     if especialidades:
+#         query = query.filter(Plomero.especialidades.contains([especialidades]))
+
+#     if atiende_urgencias:
+#         query = query.filter(Plomero.atiende_urgencias == True)
+
+#     if genero and genero != "todos":
+#         query = query.filter(Plomero.genero == genero)
+
+#     plomeros = query.order_by(Plomero.puntuacion.desc()).all()
+
+#     # ─── filtro geográfico ─────────────────────────────
+#     if lat_usuario is not None and lon_usuario is not None and radio_km is not None:
+#         plomeros = [
+#             p for p in plomeros
+#             if p.latitud and p.longitud and
+#             distancia_km(lat_usuario, lon_usuario, p.latitud, p.longitud) <= radio_km
+#         ]
+
+#     # ─── EXCLUSIÓN MARKETPLACE (CLAVE) ────────────────
+#     if excluir_ids:
+#         plomeros = [
+#             p for p in plomeros
+#             if str(p.id_plomero) not in excluir_ids
+#         ]
+
+#     return plomeros[:limite]
+def buscar_para_solicitud(
+    db:                Session,
+    especialidades:    Optional[str]   = None,
+    lat_usuario:       Optional[float] = None,
+    lon_usuario:       Optional[float] = None,
+    atiende_urgencias: bool            = False,
+    genero:            Optional[str]   = None,
+    radio_km:          Optional[float] = None,
+    solo_disponibles:  bool            = True,
+    limite:            int             = 5,
+    excluir_ids:       Optional[set]   = None,
+) -> list[Plomero]:
+
+    query = db.query(Plomero)
+
+    # ── Filtros en SQL ────────────────────────────────────────
+    if solo_disponibles:
+        query = query.filter(Plomero.disponible_ahora == True)
+    if especialidades:
+        query = query.filter(Plomero.especialidades.contains([especialidades]))
+    if atiende_urgencias:
+        query = query.filter(Plomero.atiende_urgencias == True)
+    if genero and genero != "todos":
+        query = query.filter(Plomero.genero == genero)
+
+    # Exclusión en SQL — evita traer filas innecesarias
+    if excluir_ids:
+        ids_int = [int(i) for i in excluir_ids if str(i).isdigit()]
+        if ids_int:
+            query = query.filter(Plomero.id_plomero.notin_(ids_int))
+
+    # Pre-filtro geográfico en SQL — bounding box aproximado
+    if lat_usuario is not None and lon_usuario is not None and radio_km is not None:
+        delta_lat = radio_km / 111.0
+        delta_lon = radio_km / (111.0 * max(abs(math.cos(math.radians(lat_usuario))), 0.01))
+        query = query.filter(
+            Plomero.latitud.between(lat_usuario  - delta_lat, lat_usuario  + delta_lat),
+            Plomero.longitud.between(lon_usuario - delta_lon, lon_usuario + delta_lon),
+        )
+
+    # Ordenar y limitar en SQL — no en Python
+    # Pedimos el doble del límite para tener margen para el filtro exacto
+    plomeros = query.order_by(Plomero.puntuacion.desc()).limit(limite * 2).all()
+
+    # ── Filtro geográfico exacto (Haversine) sobre el subconjunto reducido ──
+    if lat_usuario is not None and lon_usuario is not None and radio_km is not None:
+        plomeros = [
+            p for p in plomeros
+            if p.latitud and p.longitud and
+            distancia_km(lat_usuario, lon_usuario, p.latitud, p.longitud) <= radio_km
+        ]
+
+    return plomeros[:limite]
+
+def obtener_filtrados(
+    db,
+    localidad=None,
+    genero=None,
+    especialidades=None,
+    atiende_urgencias=None,
+    disponible_ahora=None,
+):
+    query = db.query(Plomero)
+
+    if localidad:
+        query = query.filter(
+            func.lower(Plomero.localidad)
+            == localidad.lower()
+    )
+
+    if genero:
+        query = query.filter(Plomero.genero == genero)
+
+    if especialidades:
+        query = query.filter(
+            Plomero.especialidades.contains([especialidades.upper])
+        )
+
+    if atiende_urgencias is not None:
+        query = query.filter(
+            Plomero.atiende_urgencias == atiende_urgencias
+        )
+
+    if disponible_ahora is not None:
+        query = query.filter(
+            Plomero.disponible_ahora == disponible_ahora
+        )
+
+    return query.order_by(
+        Plomero.puntuacion.desc()
+    ).all()
+def filtrar(
+    db:               Session,
+    genero:           Optional[str]   = None,
+    atiende_urgencias: Optional[bool] = None,
+    solo_disponibles: bool            = False,
+    lat_usuario:      Optional[float] = None,
+    lon_usuario:      Optional[float] = None,
+    radio_km:         Optional[float] = None,
+) -> list[Plomero]:
+    query = db.query(Plomero)
+    if genero:
+        query = query.filter(Plomero.genero == genero)
+    if atiende_urgencias is not None:
+        query = query.filter(Plomero.atiende_urgencias == atiende_urgencias)
+    if solo_disponibles:
+        query = query.filter(Plomero.disponible_ahora == True)
+    plomeros = query.order_by(Plomero.puntuacion.desc()).all()
+    if lat_usuario is not None and lon_usuario is not None and radio_km is not None:
+        plomeros = [
+            p for p in plomeros
+            if p.latitud and p.longitud and
+            distancia_km(lat_usuario, lon_usuario, p.latitud, p.longitud) <= radio_km
+        ]
+    return plomeros

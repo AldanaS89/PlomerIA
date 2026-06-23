@@ -1,71 +1,173 @@
 """
-Servicio de IA: analiza la descripción de una solicitud y devuelve
-etiqueta (especialidad sugerida), urgencia y rango de presupuesto.
+Servicio de IA: interpreta la descripcion en lenguaje natural del cliente y
+devuelve un diagnostico tecnico (para el plomero), la especialidad sugerida,
+la urgencia y un rango de presupuesto de materiales.
 
-Usa Google Gemini (google-generativeai). Si la API falla o no hay key,
-devuelve un diagnóstico por defecto para que el flujo no se rompa.
+Usa google-genai. Si la API falla o no hay key, usa un fallback por palabras
+clave. La idea central: el cliente escribe coloquial ("el cosito de la canilla
+pierde") y la IA traduce eso a un diagnostico de plomeria.
 """
 import json
 import re
 from typing import TypedDict
 
 from config import GEMINI_API_KEY
+from services import oficios
 
-ESPECIALIDADES = ["PLOMERIA_GENERAL", "DESTAPES", "GAS_MATRICULADO", "OBRA"]
-URGENCIAS = ["BAJA", "NORMAL", "URGENTE"]
+# Especialidades válidas tomadas del registro de oficios (hoy: plomería).
+ESPECIALIDADES = oficios.especialidades_validas()
+URGENCIAS      = ["NORMAL", "URGENTE"]
+
+# Palabras que sugieren un problema de plomeria/hogar (solo se usan en el
+# fallback, cuando NO hay IA disponible — la IA entiende lenguaje natural).
+PALABRAS_VALIDAS = [
+    "agua", "canilla", "caño", "cano", "cañeria", "caneria", "gotea", "gotera",
+    "gota", "perdida", "pérdida", "pierde", "moja", "mojado", "chorro", "chorrea",
+    "inodoro", "baño", "bano", "pileta", "rejilla", "desague", "desagüe", "cloaca",
+    "gas", "calefon", "calefón", "termotanque", "caldera", "cocina", "horno",
+    "obra", "filtra", "filtracion", "filtración", "humedad", "humedo", "húmedo",
+    "techo", "pared", "patio", "bomba", "presion", "presión", "llave", "grifo",
+    "ducha", "ducharse", "destape", "tapon", "tapado", "tapada", "tapa",
+    "desborde", "pozo", "reforma", "impermea", "fuga", "inunda", "inundacion",
+    "tuberia", "tubería", "sale agua", "no anda", "cisterna", "mochila",
+    "sanitario", "bidet", "lavatorio", "lavabo", "termo", "cosito", "perdiendo",
+]
+
+# Sanity minimo: que haya algo escrito (la IA decide el resto)
+MIN_CARACTERES = 4
+MIN_PALABRAS   = 2
 
 
 class DiagnosticoIA(TypedDict):
-    etiqueta_ia: str
-    urgencia_ia: str
+    etiqueta_ia:     str
+    oficio_ia:       str
+    urgencia_ia:     str
+    diagnostico_ia:  str
     presupuesto_min: float
     presupuesto_max: float
+    valido:          bool
+    mensaje_error:   str
 
 
-_PROMPT = """Sos un asistente que clasifica problemas de plomería en Argentina.
-A partir de la descripción del cliente, devolvé SOLO un JSON (sin texto extra, sin markdown) con estas claves:
+RANGOS = {
+    "GAS_MATRICULADO":  (25000.0, 80000.0),
+    "DESTAPES":         (15000.0, 45000.0),
+    "OBRA":             (165000.0, 460000.0),   # materiales: obra grande ~ $300k-$1.2M con severidad MAYOR
+    "PLOMERIA_GENERAL": (12000.0, 50000.0),
+}
 
-- "etiqueta_ia": una de [PLOMERIA_GENERAL, DESTAPES, GAS_MATRICULADO, OBRA]
-- "urgencia_ia": una de [BAJA, NORMAL, URGENTE]
-- "presupuesto_min": número en pesos argentinos (estimado mínimo)
-- "presupuesto_max": número en pesos argentinos (estimado máximo)
 
-Guía:
-- DESTAPES: cañerías tapadas, cloacas, pozos, desagües.
-- GAS_MATRICULADO: fugas de gas, calefón, caldera, termotanque, cocina a gas.
-- OBRA: cañerías nuevas, reformas, filtraciones estructurales, impermeabilización.
-- PLOMERIA_GENERAL: canillas, inodoros, pérdidas comunes, bombas, griferías.
-- URGENTE: fuga activa, olor a gas, inundación, sin agua en toda la casa.
-- NORMAL: problema molesto pero no peligroso.
-- BAJA: cambio estético o preventivo.
+# Severidad: ajusta el presupuesto segun la MAGNITUD del trabajo, para que un
+# arreglo menor (un cuerito) y una obra (romper pared) no cuesten lo mismo.
+SEVERIDAD_MULT = {
+    "MENOR": (0.4, 0.6),
+    "MEDIA": (1.0, 1.0),
+    "MAYOR": (1.8, 2.6),
+}
 
-Descripción del cliente:
-\"\"\"{descripcion}\"\"\"
+_PISTAS_MENOR = [
+    "cuerito", "sello", "junta", "arandela", "empaquetadura",
+    "gotea", "gotita", "goteo", "ajustar", "apretar", "afloj",
+    "aireador", "flexible", "rosca", "un poquito", "un poco",
+]
+_PISTAS_MAYOR = [
+    "romper", "demoler", "demol", "picar", "abrir la pared", "abrir el piso",
+    "rotura", "cano nuevo", "caneria nueva", "cambiar todo", "cambiar toda",
+    "recambio total", "obra", "contrapiso", "filtracion", "humedad",
+    "reforma", "instalacion nueva",
+    "bano nuevo", "baño nuevo", "rehacer", "refacc", "obra nueva",
+    "cambiar la caneria", "cambiar la cañeria", "cambiar caneria", "cambiar cañeria",
+    "caneria vieja", "cañeria vieja", "todo completo", "instalacion completa",
+]
 
-JSON:"""
+
+def _severidad(desc: str) -> str:
+    d = desc.lower()
+    if any(k in d for k in _PISTAS_MAYOR):
+        return "MAYOR"
+    if any(k in d for k in _PISTAS_MENOR):
+        return "MENOR"
+    return "MEDIA"
+
+
+def _aplicar_severidad(pmin: float, pmax: float, desc: str):
+    """Escala el rango base segun la severidad y redondea a multiplos de 500."""
+    mmin, mmax = SEVERIDAD_MULT[_severidad(desc)]
+    rmin = round(pmin * mmin / 500) * 500
+    rmax = round(pmax * mmax / 500) * 500
+    if rmax <= rmin:
+        rmax = rmin + 5000
+    return float(rmin), float(rmax)
+
+
+def _invalido(msg: str) -> DiagnosticoIA:
+    return {
+        "etiqueta_ia":     "PLOMERIA_GENERAL",
+        "oficio_ia":       "",
+        "urgencia_ia":     "NORMAL",
+        "diagnostico_ia":  "",
+        "presupuesto_min": 0.0,
+        "presupuesto_max": 0.0,
+        "valido":          False,
+        "mensaje_error":   msg,
+    }
+
+
+def _diagnostico_fallback(etiqueta: str, urgencia: str) -> str:
+    base = {
+        "GAS_MATRICULADO":  "Posible problema de gas/artefacto — requiere matriculado",
+        "DESTAPES":         "Cañería obstruida / desagote — requiere destape",
+        "OBRA":             "Trabajo de obra/filtración — requiere intervención mayor",
+        "PLOMERIA_GENERAL": "Problema de plomería general (pérdida/grifería/sanitario)",
+    }.get(etiqueta, "Problema de plomería a evaluar en el domicilio")
+    if urgencia == "URGENTE":
+        base = "URGENTE — " + base
+    return base
 
 
 def _fallback(descripcion: str) -> DiagnosticoIA:
     desc = descripcion.lower()
-    if any(k in desc for k in ["gas", "calefón", "calefon", "termotanque", "caldera"]):
+
+    # ¿Hay al menos una pista de plomeria/hogar? Si no, lo marcamos invalido.
+    if not any(k in desc for k in PALABRAS_VALIDAS):
+        return _invalido(
+            "No pudimos identificar un problema de plomería u hogar. "
+            "Contanos qué está pasando con el agua, el gas o las cañerías."
+        )
+
+    if any(k in desc for k in ["gas", "calefon", "calefón", "termotanque", "caldera"]):
         etiqueta = "GAS_MATRICULADO"
-    elif any(k in desc for k in ["tapad", "destap", "cloaca", "desagüe", "desague", "pozo"]):
+    elif any(k in desc for k in ["tapad", "tapa", "destap", "cloaca", "desague", "desagüe", "pozo", "rejilla"]):
         etiqueta = "DESTAPES"
-    elif any(k in desc for k in ["obra", "reforma", "filtraci", "impermea"]):
+    elif any(k in desc for k in ["obra", "reforma", "refacc", "filtra", "impermea", "humedad",
+                                 "pared", "techo", "bano nuevo", "baño nuevo", "rehacer",
+                                 "obra nueva", "cambiar toda", "cambiar la caneria",
+                                 "cambiar la cañeria", "caneria vieja", "cañeria vieja",
+                                 "todo completo", "instalacion completa"]):
         etiqueta = "OBRA"
     else:
         etiqueta = "PLOMERIA_GENERAL"
 
-    if any(k in desc for k in ["urgente", "inunda", "fuga", "olor a gas", "sin agua"]):
+    if any(k in desc for k in [
+        "urgente", "urgencia", "emergencia", "inunda", "fuga", "pérdida", "perdida",
+        "pierde", "olor a gas", "sin agua", "no tengo agua", "explota", "revienta",
+        "roto", "no cierra", "no para", "chorrea", "chorro", "sale agua",
+    ]):
         urgencia = "URGENTE"
     else:
         urgencia = "NORMAL"
 
+    base_min, base_max = RANGOS.get(etiqueta, (15000.0, 60000.0))
+    pmin, pmax = _aplicar_severidad(base_min, base_max, descripcion)
     return {
-        "etiqueta_ia": etiqueta,
-        "urgencia_ia": urgencia,
-        "presupuesto_min": 15000.0,
-        "presupuesto_max": 60000.0,
+        "etiqueta_ia":     etiqueta,
+        "oficio_ia":       oficios.oficio_de_especialidad(etiqueta) or "PLOMERIA",
+        "urgencia_ia":     urgencia,
+        "diagnostico_ia":  _diagnostico_fallback(etiqueta, urgencia),
+        "presupuesto_min": pmin,
+        "presupuesto_max": pmax,
+        "valido":          True,
+        "mensaje_error":   "",
     }
 
 
@@ -79,33 +181,124 @@ def _parse_json(texto: str) -> dict | None:
         return None
 
 
+_PROMPT = """Sos un plomero experto en Argentina que interpreta lo que escribe un cliente.
+El cliente NO sabe términos técnicos y escribe de forma coloquial (por ejemplo
+"el cosito de la canilla pierde" o "sale un chorro de la rejilla del patio").
+Tu trabajo es ENTENDER el problema real y traducirlo a un diagnóstico técnico.
+
+Reglas:
+- Si el texto describe (aunque sea coloquialmente) un problema de plomería, gas,
+  cañerías, humedad u hogar relacionado, es válido. Interpretá las palabras
+  informales. No exijas vocabulario técnico.
+- Si el texto mezcla cosas irrelevantes con un problema real del hogar (ej:
+  "me duele el dedo y gotea la canilla"), IGNORÁ lo irrelevante y diagnosticá el
+  problema del hogar.
+- Si NO hay ningún problema de plomería/hogar (ej: "me duele el dedo", "hola",
+  texto sin sentido), devolvé valido: false.
+
+Devolvé SOLO un JSON (sin texto extra, sin markdown) con estas claves:
+- "valido": true/false
+- "mensaje_error": si valido es false, explicación breve y amable; si no, ""
+- "diagnostico_ia": diagnóstico técnico BREVE (una sola oración, máx ~12 palabras)
+  en lenguaje de plomero. Ej: "Pérdida en sello de canilla de cocina".
+- "etiqueta_ia": una de [PLOMERIA_GENERAL, DESTAPES, GAS_MATRICULADO, OBRA]
+- "urgencia_ia": una de [NORMAL, URGENTE]
+- "presupuesto_min": número en pesos argentinos (solo materiales, mínimo)
+- "presupuesto_max": número en pesos argentinos (solo materiales, máximo)
+
+Guía de especialidades:
+- DESTAPES: cañerías tapadas, cloacas, pozos, desagües, rejillas que rebalsan.
+- GAS_MATRICULADO: fugas de gas, calefón, caldera, termotanque, cocina a gas.
+- OBRA: cañerías nuevas, reformas, filtraciones estructurales, humedad, impermeabilización.
+- PLOMERIA_GENERAL: canillas, inodoros, pérdidas comunes, bombas, griferías.
+
+Guía de urgencia:
+- URGENTE: fuga activa, olor a gas, inundación, sin agua, problema que empeora rápido.
+- NORMAL: problema molesto pero estable, cambio estético o preventivo.
+
+Guía de presupuesto (reflejá la MAGNITUD del trabajo, no solo el tipo):
+- Arreglo menor (cambiar un cuerito/sello, ajustar una rosca, una junta): monto bajo.
+- Reemplazo de una pieza (cambiar la canilla/grifería, un flexible, una llave): monto medio.
+- Obra (romper pared o piso, cañería nueva, filtración estructural, humedad): monto alto.
+Dos problemas de la misma categoría pero de distinta magnitud deben tener montos distintos.
+
+Descripción del cliente:
+\"\"\"{descripcion}\"\"\"
+
+JSON:"""
+
+
+# Cache en memoria por texto: evita re-llamar a Gemini para la misma descripción
+# (la búsqueda y el alta de la solicitud usan el mismo texto → la 2da es instantánea,
+# y re-solicitar lo mismo no vuelve a esperar a la IA).
+_CACHE_DIAGNOSTICO: dict[str, "DiagnosticoIA"] = {}
+
+
 def analizar_descripcion(descripcion: str) -> DiagnosticoIA:
-    if not GEMINI_API_KEY:
-        return _fallback(descripcion)
+    """Wrapper con cache por texto. La lógica real está en _analizar()."""
+    clave = (descripcion or "").strip().lower()
+    if clave and clave in _CACHE_DIAGNOSTICO:
+        return _CACHE_DIAGNOSTICO[clave]
+    resultado = _analizar(descripcion)
+    if clave:
+        _CACHE_DIAGNOSTICO[clave] = resultado
+    return resultado
 
-    try:
-        import google.generativeai as genai
 
-        genai.configure(api_key=GEMINI_API_KEY)
-        model = genai.GenerativeModel("gemini-flash-latest")
-        respuesta = model.generate_content(_PROMPT.format(descripcion=descripcion))
-        data = _parse_json(respuesta.text or "")
-        if not data:
-            return _fallback(descripcion)
+def _analizar(descripcion: str) -> DiagnosticoIA:
+    """
+    Interpreta la descripción del cliente.
+    Con IA disponible, la IA entiende el lenguaje natural y decide la validez.
+    Sin IA, cae a un fallback por palabras clave (más permisivo).
+    """
+    desc_limpia = (descripcion or "").strip()
 
-        etiqueta = str(data.get("etiqueta_ia", "")).upper()
-        urgencia = str(data.get("urgencia_ia", "")).upper()
-        if etiqueta not in ESPECIALIDADES:
-            etiqueta = _fallback(descripcion)["etiqueta_ia"]
-        if urgencia not in URGENCIAS:
-            urgencia = "NORMAL"
+    # Sanity mínimo: que haya algo escrito
+    if len(desc_limpia) < MIN_CARACTERES or len(desc_limpia.split()) < MIN_PALABRAS:
+        return _invalido("Contanos un poco más: ¿qué está pasando en tu casa?")
 
-        return {
-            "etiqueta_ia": etiqueta,
-            "urgencia_ia": urgencia,
-            "presupuesto_min": float(data.get("presupuesto_min", 15000)),
-            "presupuesto_max": float(data.get("presupuesto_max", 60000)),
-        }
-    except Exception as e:
-        print(f"[ia_service] Error llamando a Gemini, usando fallback: {e}")
-        return _fallback(descripcion)
+    if GEMINI_API_KEY:
+        try:
+            from google import genai
+
+            client = genai.Client(api_key=GEMINI_API_KEY)
+            respuesta = client.models.generate_content(
+                model    = "gemini-1.5-flash",
+                contents = _PROMPT.format(descripcion=desc_limpia),
+            )
+            data = _parse_json(respuesta.text or "")
+
+            if data:
+                if not data.get("valido", True):
+                    return _invalido(data.get(
+                        "mensaje_error",
+                        "No pudimos identificar un problema del hogar. Contanos qué está pasando.",
+                    ))
+
+                etiqueta = str(data.get("etiqueta_ia", "")).upper()
+                urgencia = str(data.get("urgencia_ia", "")).upper()
+                if etiqueta not in ESPECIALIDADES:
+                    etiqueta = _fallback(desc_limpia)["etiqueta_ia"]
+                if urgencia not in URGENCIAS:
+                    urgencia = "NORMAL"
+
+                base_min, base_max = RANGOS.get(etiqueta, (15000.0, 60000.0))
+                pmin_def, pmax_def = _aplicar_severidad(base_min, base_max, desc_limpia)
+                diagnostico = str(data.get("diagnostico_ia", "")).strip() \
+                    or _diagnostico_fallback(etiqueta, urgencia)
+
+                return {
+                    "etiqueta_ia":     etiqueta,
+                    "oficio_ia":       oficios.oficio_de_especialidad(etiqueta) or "PLOMERIA",
+                    "urgencia_ia":     urgencia,
+                    "diagnostico_ia":  diagnostico,
+                    "presupuesto_min": float(data.get("presupuesto_min", pmin_def)),
+                    "presupuesto_max": float(data.get("presupuesto_max", pmax_def)),
+                    "valido":          True,
+                    "mensaje_error":   "",
+                }
+            # Si no se pudo parsear, caemos al fallback
+        except Exception as e:  # noqa: BLE001
+            print(f"[ia_service] Error llamando a Gemini, usando fallback: {e}")
+
+    return _fallback(desc_limpia)

@@ -1,43 +1,109 @@
 # models/solicitud.py
-from sqlalchemy import Column, Integer, String, Float, DateTime, ForeignKey, Enum
-from sqlalchemy.orm import relationship
-from datetime import datetime
-from database import Base
 import enum
 
-# ── Estados posibles de una solicitud ────────────────────────────────────────
-class EstadoSolicitud(enum.Enum):
-    PENDIENTE  = "pendiente"
-    ACEPTADO   = "aceptado"
-    RECHAZADO  = "rechazado"
+from sqlalchemy import (
+    Column,
+    Index,
+    Integer,
+    String,
+    Float,
+    Boolean,
+    DateTime,
+    ForeignKey,
+    Enum as SQLEnum,
+    func,
+)
+from sqlalchemy.orm import relationship
+from database import Base
 
-# ── Modelo principal ──────────────────────────────────────────────────────────
+
+class EstadoSolicitud(enum.Enum):
+    # borrador — el cliente pidió diagnóstico y vio recomendaciones, pero
+    # todavía no envió la solicitud a ningún plomero. Persiste hasta que la
+    # envía, la cancela, o se cierra sola a las 48hs de inactividad.
+    BORRADOR               = "borrador"
+
+    # inicial — esperando que un plomero acepte
+    PENDIENTE              = "pendiente"
+
+    # en ejecución — plomero asignado
+    EN_PROGRESO            = "en_progreso"
+    EN_CAMINO              = "en_camino"
+
+    # final exitoso — ambos pueden calificar dentro de 72hs
+    PENDIENTE_CALIFICACION = "pendiente_calificacion"
+    COMPLETADA             = "completada"
+
+    # final definitivo
+    CANCELADA              = "cancelada"
+
+    # flujo interno — todos rechazaron o el plomero canceló,
+    # el cliente puede reintentar (máx 3 veces)
+    REASIGNACION_PENDIENTE = "reasignacion_pendiente"
+    SIN_RESPUESTA          = "sin_respuesta"
+
+
 class Solicitud(Base):
     __tablename__ = "solicitudes"
 
-    id_solicitud    = Column(Integer, primary_key=True, index=True)
+    __table_args__ = (
+        Index("ix_solicitud_usuario", "id_usuario"),
+        Index("ix_solicitud_estado",  "estado"),
+        Index("ix_solicitud_localidad", "localidad_evento"),
+    )
 
-    # ── Quién pide y a quién se le asigna ────────────────────────────────────
-    id_usuario = Column(Integer, ForeignKey("usuarios.id_usuario"), nullable=False)
-    id_plomero      = Column(Integer, ForeignKey("plomeros.id_plomero"), nullable=True)
-    #                                             ↑ nullable=True porque al crear
-    #                                               la solicitud aún no hay plomero asignado
+    id_solicitud = Column(Integer, primary_key=True, index=True)
 
-    # ── Descripción del problema (cargado por el cliente) ────────────────────
+    id_usuario = Column(
+        Integer, ForeignKey("usuarios.id_usuario"), nullable=False
+    )
+
+    # NULL hasta que el primer plomero acepta
+    id_plomero = Column(
+        Integer, ForeignKey("plomeros.id_plomero"), nullable=True
+    )
+
     descripcion_raw = Column(String, nullable=False)
-    imagen_path     = Column(String, nullable=True)   # ruta de la foto adjunta
-    video_path      = Column(String, nullable=True)   # ruta del video adjunto
+    imagen_path     = Column(String, nullable=True)
+    video_path      = Column(String, nullable=True)
 
-    # ── Resultado del diagnóstico de la IA ───────────────────────────────────
-    etiqueta_ia     = Column(String, nullable=True)   # ej: "DESTAPES"
-    urgencia_ia     = Column(String, nullable=True)   # ej: "URGENTE"
-    presupuesto_min = Column(Float,  nullable=True)   # en ARS
-    presupuesto_max = Column(Float,  nullable=True)   # en ARS
+    etiqueta_ia     = Column(String, nullable=True)
+    urgencia_ia     = Column(String, nullable=True)
+    diagnostico_ia  = Column(String, nullable=True)   # diagnóstico técnico para el plomero
+    presupuesto_min = Column(Float,  nullable=True)
+    presupuesto_max = Column(Float,  nullable=True)
 
-    # ── Estado y fecha ────────────────────────────────────────────────────────
-    estado          = Column(Enum(EstadoSolicitud), default=EstadoSolicitud.PENDIENTE)
-    fecha           = Column(DateTime, default=datetime.now)
+    localidad_evento = Column(String, nullable=False)
+    latitud_evento   = Column(Float,  nullable=True)
+    longitud_evento  = Column(Float,  nullable=True)
 
-    # ── Relaciones (para acceder a los objetos relacionados fácilmente) ───────
+    turno_solicitado = Column(String,   nullable=True)
+    fecha_trabajo    = Column(DateTime, nullable=True)
+    # Momento en que el plomero marcó EN CAMINO (para exigir 2hs antes de finalizar).
+    fecha_en_camino  = Column(DateTime, nullable=True)
+
+    fecha_ultimo_envio    = Column(DateTime, nullable=True)
+    intentos_reasignacion = Column(Integer,  default=0)
+    # True cuando ya se avisó al plomero que el trabajo está vencido sin cerrar
+    # (evita repetir la notificación en cada refresco).
+    aviso_cierre_enviado  = Column(Boolean,  default=False)
+
+    # Plazo para calificar — se setea cuando el plomero marca TERMINADO
+    # Vence a las 72hs. Si el actor no calificó antes, el sistema
+    # registra 5 estrellas automáticas y cierra la solicitud.
+    fecha_vencimiento_calificacion = Column(DateTime, nullable=True)
+
+    estado = Column(
+        SQLEnum(EstadoSolicitud, name="estado_solicitud"),
+        default=EstadoSolicitud.PENDIENTE,
+    )
+
+    fecha = Column(DateTime, default=func.now())
+
     usuario = relationship("Usuario", foreign_keys=[id_usuario])
     plomero = relationship("Plomero", foreign_keys=[id_plomero])
+    plomeros = relationship(
+        "SolicitudPlomero",
+        back_populates="solicitud",
+        cascade="all, delete-orphan",
+    )

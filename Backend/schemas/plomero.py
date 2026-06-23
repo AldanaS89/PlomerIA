@@ -1,48 +1,58 @@
-from pydantic import BaseModel, EmailStr
-from typing import Optional
+from pydantic import BaseModel, EmailStr, ConfigDict, Field
+from typing import Optional, List
+from datetime import datetime
 
-class PlomeroRequest(BaseModel):
-    nombre:            str
-    apellido:          str
-    email:             EmailStr
-    telefono:          str
-    especialidad:      str       # PLOMERIA_GENERAL / DESTAPES / GAS_MATRICULADO / OBRA
-    genero:            str       # M / F
-    localidad:         str
-    atiende_urgencias: bool = False
-    matricula_gas:     bool = False
+from models.plomero import EspecialidadEnum
+
+
+# ─────────────────────────────
+# BASE
+# ─────────────────────────────
+class PlomeroBase(BaseModel):
+    nombre:    str
+    apellido:  str
+    email:     EmailStr
+    # telefono eliminado — reemplazado por mensajería interna
+    genero:    str
+    localidad: str
+
+
+# ─────────────────────────────
+# REQUEST (REGISTER)
+# ─────────────────────────────
+class PlomeroRequest(PlomeroBase):
+    especialidad:      EspecialidadEnum
+    especialidades: List[str] = Field(default_factory=list)
+    otra_especialidad: Optional[str] = None
+    atiende_urgencias: bool
+    matricula_gas:     bool
     password:          str
+    agenda:            Optional[dict] = None
 
+
+# ─────────────────────────────
+# RESPONSE
+# ─────────────────────────────
 class PlomeroResponse(BaseModel):
     id_plomero:        int
     nombre:            str
     apellido:          str
-    email:             str
-    especialidad:      str
+    email:             EmailStr
+    # telefono eliminado — reemplazado por mensajería interna
+    especialidad: EspecialidadEnum | None = None
+    especialidades: List[str] = Field(default_factory=list)
+    otra_especialidad: Optional[str]  = None
     genero:            str
     localidad:         str
-    atiende_urgencias: bool
-    disponible_ahora:  bool
+    latitud:           Optional[float] = None
+    longitud:          Optional[float] = None
     puntuacion:        float
     total_trabajos:    int
-# Le dice a Pydantic que puede convertir un objeto SQLAlchemy directamente a este schema. Sin eso, 
-#PlomeroResponse.model_validate(plomero) no funcionaría.
-    class Config:
-        from_attributes = True
-        
-class PlomeroLoginRequest(BaseModel):
-    email:    EmailStr
-    password: str
+    atiende_urgencias: bool
+    disponible_ahora:  bool
+    matricula_gas:     bool
+    foto_perfil_path:  Optional[str]  = None
+    agenda:            Optional[dict] = None
+    fecha_registro:    datetime
 
-class PlomeroLoginResponse(BaseModel):
-    access_token: str
-    token_type:   str
-    id_plomero:   int
-    nombre:       str
-    
-class OlvidePasswordPlomeroRequest(BaseModel):
-    email: EmailStr
-
-class ResetPasswordPlomeroRequest(BaseModel):
-    token:           str
-    nueva_password:  str
+    model_config = ConfigDict(from_attributes=True)

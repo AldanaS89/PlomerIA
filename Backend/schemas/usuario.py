@@ -1,12 +1,14 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
+
 
 class UsuarioResponse(BaseModel):
     id_usuario: int
-    nombre:     str
-    apellido:   str
-    email:      str
-    telefono:   str
-    localidad:  str
+    nombre: str
+    apellido: str
+    email: str
+    direccion: str
+    localidad: str
+    latitud: float
+    longitud: float
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)

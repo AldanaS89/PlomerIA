@@ -1,26 +1,52 @@
-from sqlalchemy import Column, Integer, String, Float, Boolean, DateTime
-from datetime import datetime
+# models/plomero.py
+from sqlalchemy import Column, Integer, String, Float, Boolean, JSON, DateTime, Enum as SAEnum
 from database import Base
+from models.personaMixin import PersonaMixin, PersonaBase
+import enum
 
-class Plomero(Base):
+
+class EspecialidadEnum(str, enum.Enum):
+    PLOMERIA_GENERAL = "PLOMERIA_GENERAL"
+    DESTAPES         = "DESTAPES"
+    GAS_MATRICULADO  = "GAS_MATRICULADO"
+    OBRA             = "OBRA"
+    FILTRACIONES     = "FILTRACIONES"
+    CALEFACCION      = "CALEFACCION"
+    OTRA             = "OTRA"
+
+
+class Plomero(PersonaMixin, Base):
     __tablename__ = "plomeros"
 
-    id_plomero        = Column(Integer, primary_key=True, index=True)
-    nombre            = Column(String)
-    apellido          = Column(String)
-    email             = Column(String, unique=True, index=True)
-    telefono          = Column(String)
-    especialidad      = Column(String)
-    genero            = Column(String)
-    localidad         = Column(String)
-    latitud           = Column(Float, nullable=True)   # ← agregar
-    longitud          = Column(Float, nullable=True)   # ← agregar
-    atiende_urgencias = Column(Boolean, default=False)
-    disponible_ahora  = Column(Boolean, default=True)
-    puntuacion        = Column(Float, default=0.0)
-    total_trabajos    = Column(Integer, default=0)
-    matricula_gas     = Column(Boolean, default=False)
-    password_hash     = Column(String)
-    fecha_registro    = Column(DateTime, default=datetime.now)
-    reset_token = Column(String, nullable=True)
-    
+    id_plomero                 = Column(Integer, primary_key=True, index=True)
+    especialidad               = Column(SAEnum(EspecialidadEnum))
+    especialidades             = Column(JSON)
+    otra_especialidad          = Column(String, nullable=True)
+    genero                     = Column(String)
+    atiende_urgencias          = Column(Boolean, default=False)
+    disponible_ahora           = Column(Boolean, default=True)
+    # Si tiene un trabajo activo, queda no disponible hasta finalizar; al finalizar
+    # se libera desde la hora próxima (disponible_desde). Null = sin restricción.
+    disponible_desde           = Column(DateTime, nullable=True)
+    puntuacion                 = Column(Float,   default=5.0)
+    total_trabajos             = Column(Integer, default=0)
+    matricula_gas              = Column(Boolean, default=False)
+    foto_perfil_path           = Column(String,  nullable=True)
+    agenda                     = Column(JSON,    nullable=True)
+    rol                        = Column(String,  default="plomero")
+    cancelaciones_consecutivas = Column(Integer, default=0)
+    suspendido                 = Column(Boolean, default=False)
+    suspendido_hasta           = Column(DateTime, nullable=True)   # reactivación automática
+    mensajes_ofensivos         = Column(Integer, default=0)        # groserías acumuladas
+
+    def get_id(self) -> int:
+        return self.id_plomero
+
+    def get_email(self) -> str:
+        return self.email
+
+    def nombre_completo(self) -> str:
+        return f"{self.nombre} {self.apellido}"
+
+
+PersonaBase.register(Plomero)

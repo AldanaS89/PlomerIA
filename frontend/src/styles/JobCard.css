@@ -1,0 +1,230 @@
+.job-card {
+  background: white;
+  border-radius: 14px;
+  border: 1.5px solid #e8edf2;
+  padding: 1rem;
+  margin-bottom: 12px;
+  transition: opacity 0.3s;
+}
+
+.job-card.urgent {
+  border-color: #f5c6c6;
+  background: #fffafa;
+}
+
+.job-card.accepted {
+  border-color: #a8e6c0;
+  background: #f2fbf5;
+}
+
+.accepted-inner {
+  text-align: center;
+  padding: 1.5rem 1rem;
+}
+
+.accepted-icon {
+  font-size: 40px;
+  display: block;
+  margin-bottom: 10px;
+}
+
+.accepted-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: #27ae60;
+  margin-bottom: 6px;
+}
+
+.accepted-sub {
+  font-size: 13px;
+  color: #777;
+}
+
+/* Tags */
+.tag-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.tag {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 3px 10px;
+  border-radius: 20px;
+}
+
+.tag-urgencias {
+  background: #fde8e8;
+  color: #c0392b;
+}
+
+.tag-destapes {
+  background: #e8f4fd;
+  color: #1a6faa;
+}
+
+.tag-urgente {
+  background: #e74c3c;
+  color: white;
+}
+
+/* Meta */
+.job-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+  color: #777;
+  margin-bottom: 10px;
+}
+
+.turno {
+  font-size: 12px;
+  color: #555;
+}
+
+/* Timer */
+.timer-box {
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin-bottom: 10px;
+}
+
+.urgent-timer {
+  background: #fff9e6;
+  border: 1px solid #f0d080;
+}
+
+.normal-timer {
+  background: #f0f7ff;
+  border: 1px solid #c0d8f0;
+}
+
+.timer-label {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #999;
+  margin-bottom: 6px;
+}
+
+.timer-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.timer-value {
+  font-size: 20px;
+  font-weight: 600;
+  font-family: 'DM Mono', monospace;
+  color: #e67e00;
+  min-width: 72px;
+}
+
+.timer-value.blue {
+  color: #1a6faa;
+}
+
+.timer-bar {
+  flex: 1;
+  height: 6px;
+  background: #eee;
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.timer-fill {
+  height: 100%;
+  border-radius: 3px;
+  transition: width 1s linear;
+}
+
+.timer-fill.orange {
+  background: #f0a500;
+}
+
+.timer-fill.blue {
+  background: #1a6faa;
+}
+
+/* Descripción */
+.desc-box {
+  margin-bottom: 12px;
+}
+
+.desc-label {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #aaa;
+  margin-bottom: 6px;
+}
+
+.desc-text {
+  font-size: 13px;
+  color: #444;
+  line-height: 1.6;
+}
+
+.ver-mas {
+  background: none;
+  border: none;
+  color: #1a6faa;
+  font-size: 13px;
+  padding: 4px 0;
+  margin-top: 4px;
+  display: inline-block;
+}
+
+/* Nota dirección */
+.address-note {
+  font-size: 12px;
+  color: #999;
+  margin-bottom: 14px;
+}
+
+/* Botones */
+.btn-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.btn-reject {
+  background: #fff0f0;
+  color: #c0392b;
+  border: 1.5px solid #f5c6c6;
+  border-radius: 10px;
+  padding: 12px;
+  font-size: 14px;
+  font-weight: 600;
+  transition: background 0.15s;
+}
+
+.btn-reject:hover {
+  background: #fde0e0;
+}
+
+.btn-accept {
+  background: #27ae60;
+  color: white;
+  border: none;
+  border-radius: 10px;
+  padding: 12px;
+  font-size: 14px;
+  font-weight: 600;
+  transition: background 0.15s, transform 0.1s;
+}
+
+.btn-accept:hover {
+  background: #219a52;
+}
+
+.btn-accept:active {
+  transform: scale(0.98);
+}

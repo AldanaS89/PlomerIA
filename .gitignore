@@ -208,3 +208,7 @@ __marimo__/
 
 .env
 *.db
+# Dependencias de Node (no versionar)
+node_modules/
+**/node_modules/
+get-pip.py
