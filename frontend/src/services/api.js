@@ -1,8 +1,12 @@
 import axios from 'axios';
 import { mostrarCartelSuspension } from '../utils/suspensionModal';
 
+// baseURL relativa: el navegador la resuelve contra el origen actual y deja
+// que el proxy (nginx en producción / vite en desarrollo) la reenvíe al backend.
+// Hardcodear http://localhost:8000 rompe el despliegue Docker, donde el puerto
+// 8000 del backend no está publicado al host.
 const api = axios.create({
-  baseURL: 'http://localhost:8000/api',
+  baseURL: '/api',
   headers: { 'Content-Type': 'application/json' }
 });
 

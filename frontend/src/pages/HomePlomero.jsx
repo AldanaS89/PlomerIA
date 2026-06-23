@@ -71,7 +71,7 @@ function Stars({ val, size=13 }) {
 
 function Avatar({ src, nombre, apellido, size=44 }) {
   const [err, setErr] = useState(false);
-  const fullSrc = src && !src.startsWith("http") ? `http://localhost:8000/${src}` : src;
+  const fullSrc = src && !src.startsWith("http") ? `/${src}` : src;
   if (fullSrc && !err) return (
     <img src={fullSrc} alt="" onError={()=>setErr(true)}
       style={{ width:size, height:size, borderRadius:"12px", objectFit:"cover", flexShrink:0 }}/>

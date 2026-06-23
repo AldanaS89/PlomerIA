@@ -729,6 +729,7 @@ def reintentar(
     if solicitud.estado not in (
         EstadoSolicitud.SIN_RESPUESTA,
         EstadoSolicitud.PENDIENTE,
+        EstadoSolicitud.REASIGNACION_PENDIENTE,   # el plomero canceló: el cliente reasigna
     ):
         raise HTTPException(
             status_code=400,

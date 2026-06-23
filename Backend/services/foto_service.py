@@ -14,9 +14,21 @@ MIME_PERMITIDOS = {"image/jpeg", "image/png", "image/webp"}
 EXT_PERMITIDAS  = {".jpg", ".jpeg", ".png", ".webp"}
 MAX_BYTES       = 5 * 1024 * 1024
 
-# Ruta al clasificador — copiado a Backend/ para evitar bug de OpenCV con
-# rutas que contienen caracteres especiales (°, Ñ) en Windows
-RUTA_CLASIFICADOR = r"C:\temp\haarcascade.xml"
+# Clasificador Haar: usamos el XML incluido en el repo (junto al backend) y, si
+# no estuviera, el que trae OpenCV. Evita rutas absolutas atadas a un SO concreto
+# (antes apuntaba a C:\temp\..., lo que rompía en Linux/Docker).
+def _resolver_clasificador() -> str | None:
+    candidatos = [
+        Path(__file__).resolve().parent.parent / "haarcascade_frontalface_default.xml",
+        Path(cv2.data.haarcascades) / "haarcascade_frontalface_default.xml",
+    ]
+    for ruta in candidatos:
+        if ruta.exists():
+            return str(ruta)
+    return None
+
+
+RUTA_CLASIFICADOR = _resolver_clasificador()
 
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -76,7 +88,7 @@ class FotoService:
         if img is None:
             return
 
-        cascade = cv2.CascadeClassifier(RUTA_CLASIFICADOR)
+        cascade = cv2.CascadeClassifier(RUTA_CLASIFICADOR) if RUTA_CLASIFICADOR else cv2.CascadeClassifier()
 
         if cascade.empty():
             print(f"[foto_service] Clasificador no encontrado en: {RUTA_CLASIFICADOR}")
@@ -89,8 +101,8 @@ class FotoService:
         faces = cascade.detectMultiScale(
             gray,
             scaleFactor=1.05,
-            minNeighbors=8,
-            minSize=(60, 60)
+            minNeighbors=4,
+            minSize=(40, 40)
         )
         if len(faces) == 0:
             raise HTTPException(
