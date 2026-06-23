@@ -454,16 +454,23 @@ def sugerir(
     # resultado siempre se completa con el resto del pool (no quedan huecos).
     excl = set(excluidos or [])
 
-    # Plomeros con un trabajo ACTIVO sin finalizar: NO son opción en las
-    # recomendaciones hasta cerrarlo. Agendar con un plomero ocupado o inactivo
-    # solo es posible recontactándolo desde "Finalizados" (le llega por mail).
-    ocupados_activos = {
-        r[0] for r in db.query(Solicitud.id_plomero).filter(
-            Solicitud.id_plomero.isnot(None),
-            Solicitud.estado.in_([EstadoSolicitud.EN_PROGRESO, EstadoSolicitud.EN_CAMINO]),
-        ).all()
-    }
+    # Plomeros NO disponibles para un trabajo nuevo: solo los que tienen un
+    # trabajo activo de HOY o ya VENCIDO (sin cerrar). Un trabajo a FUTURO NO
+    # los oculta —siguen apareciendo para otros días— y su franja ocupada se
+    # marca aparte (ocupados_map) para no permitir doble reserva de ese turno.
     ahora_dt = datetime.now()
+    hoy = ahora_dt.date()
+    ocupados_activos = set()
+    for id_p, ft, est in db.query(
+        Solicitud.id_plomero, Solicitud.fecha_trabajo, Solicitud.estado
+    ).filter(
+        Solicitud.id_plomero.isnot(None),
+        Solicitud.estado.in_([EstadoSolicitud.EN_PROGRESO, EstadoSolicitud.EN_CAMINO]),
+    ).all():
+        # EN_CAMINO = está yendo ahora; sin fecha = trabajo inmediato; fecha <= hoy
+        # = de hoy o vencido. Cualquiera de esos lo deja fuera de las recomendaciones.
+        if est == EstadoSolicitud.EN_CAMINO or ft is None or ft.date() <= hoy:
+            ocupados_activos.add(id_p)
 
     vistos, unicos = set(), []
     for p in plomeros:
@@ -472,7 +479,7 @@ def sugerir(
         if getattr(p, "suspendido", False):
             continue                      # cuenta suspendida → no se ofrece
         if p.id_plomero in ocupados_activos:
-            continue                      # tiene un trabajo activo sin finalizar
+            continue                      # trabajo de hoy o vencido sin cerrar
         dd = getattr(p, "disponible_desde", None)
         if dd is not None and ahora_dt < dd:
             continue                      # recién finalizó: disponible desde la hora próxima
