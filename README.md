@@ -36,6 +36,8 @@
 | IA | Google Gemini (con fallback por palabras clave) |
 | Tiempo real | WebSockets (chat) |
 | Frontend | React 18 + Vite + Zustand |
+| ContenedoresDocker | Docker ComposeTestingPytest
+| Testing | Pytest
 | Config | python-dotenv |
 
 ---
@@ -48,23 +50,29 @@ PlomerIA/
 │   ├── main.py               # API, routers, migración liviana, scheduler
 │   ├── config.py             # Carga .env (SECRET_KEY, GEMINI_API_KEY)
 │   ├── database.py
-│   ├── models/               # SQLAlchemy: Usuario, Plomero, Solicitud, ...
-│   ├── schemas/              # Pydantic: requests/responses
-│   ├── repositories/         # Acceso a datos
-│   ├── services/             # Lógica: ia_service, filtrado, calificación...
-│   │   └── oficios.py        # Registro de oficios (base multi-oficio)
-│   ├── routers/              # auth, usuarios, plomeros, solicitudes, chat...
-│   ├── core/                 # Auth JWT y dependencias de rol
-│   ├── scripts/              # Seed y simulaciones (agendas, antigüedad)
+│   ├── models/                # SQLAlchemy: Usuario, Plomero, Solicitud, ...
+│   ├── schemas/                # Pydantic: requests/responses
+│   ├── repositories/           # Acceso a datos
+│   ├── services/                # Lógica: ia_service, filtrado, calificación...
+│   │   └── oficios.py            # Registro de oficios (base multi-oficio)
+│   ├── routers/                 # auth, usuarios, plomeros, solicitudes, chat...
+│   ├── core/                    # Auth JWT y dependencias de rol
+│   ├── scripts/                 # Seed y simulaciones (agendas, antigüedad)
+│   ├── tests/                   # Tests automatizados (pytest)
+│   ├── Dockerfile
+│   ├── .dockerignore
 │   └── .env.example
-├── frontend/                 # React + Vite
+├── frontend/                  # React + Vite
+│   ├── nginx.conf              # Config de Nginx para servir el build en Docker
 │   └── src/
-│       ├── pages/            # Login, Registro, HomeCliente, HomePlomero
-│       ├── components/       # ChatWidget, BoletaMateriales, DireccionConMapa
-│       ├── hooks/            # useNotificaciones
-│       └── services/         # api (axios)
-├── docs/diagramas/           # Diagramas renderizados (SVG) + README
-├── MEJORAS_Y_OFICIOS.md      # Roadmap y refactor a multi-oficio
+│       ├── pages/                # Login, Registro, HomeCliente, HomePlomero
+│       ├── components/           # ChatWidget, BoletaMateriales, DireccionConMapa
+│       ├── hooks/                 # useNotificaciones
+│       └── services/              # api (axios)
+├── docker-compose.yml         # Levanta backend + frontend en producción
+├── docker-compose.dev.yml     # Levanta el entorno de desarrollo
+├── docs/diagramas/            # Diagramas como código (.puml / .mmd)
+├── MEJORAS_Y_OFICIOS.md       # Roadmap y refactor a multi-oficio
 ├── requirements.txt
 └── README.md
 ```
@@ -72,6 +80,8 @@ PlomerIA/
 ---
 
 ## 🚀 Cómo correrlo
+
+### Opción A — Manual
 
 ### Pre-requisitos
 - **Python 3.10+** (probado con 3.12) · **Node.js 18+** · **npm** · **Git**
@@ -120,6 +130,56 @@ npm install
 npm run dev
 ```
 Abrir http://localhost:5173 (el backend tiene que estar corriendo).
+
+### Opción B — Con Docker 
+
+#### Pre-requisitos
+- **Docker** y **Git** instalados
+
+#### Pasos
+```bash
+git clone https://github.com/AldanaS89/PlomerIA.git
+cd PlomerIA
+cp Backend/.env.example Backend/.env
+```
+Editá `Backend/.env` con tu `SECRET_KEY` y `GEMINI_API_KEY` (ver más abajo cómo obtenerla).
+
+Levantar el proyecto en local (con hot-reload):
+```bash
+docker-compose -f docker-compose.dev.yml up --build
+```
+
+Esto levanta el backend en `http://localhost:8000` y el frontend en `http://localhost:5173`,
+sin necesidad de instalar Python ni Node localmente.
+
+Para detener todo:
+```bash
+docker-compose -f docker-compose.dev.yml down
+```
+
+> **Nota sobre los Dockerfiles del frontend:** hay dos, uno para cada entorno.
+> `frontend/Dockerfile` es **multi-stage** (compila el build de React y lo sirve
+> con Nginx) — se usa en `docker-compose.yml` para producción. `frontend/Dockerfile.dev`
+> corre Vite directamente con hot-reload — se usa en `docker-compose.dev.yml` para
+> desarrollo local. `docker-compose.yml` (producción) además depende de Cloudflare
+> Tunnel — no usar para correr el proyecto en local.
+
+
+---
+
+## 🧪 Tests automatizados
+
+El backend cuenta con tests escritos con **Pytest**. Para correrlos:
+
+```bash
+cd Backend
+pytest
+```
+
+Para ver el detalle de cada test:
+```bash
+pytest -v
+```
 
 ---
 
