@@ -83,15 +83,3 @@ Materia: Desarrollo de Software · UNAB · Entrega: 17/06/2026
 **Horas:** _(completar)_
 
 ---
-
-## Resumen de horas
-
-| Integrante | Horas totales |
-|------------|--------------:|
-| Aldana Benavent | ≈ 230 |
-| María Florencia Iñiguez Trejo | _(completar)_ |
-| Luis Esteban Ordeñana | _(completar)_ |
-| Dafne Araujo | _(completar)_ |
-| Ailin Granara | _(completar)_ |
-| Rocío Natalí Rolón | _(completar)_ |
-| **TOTAL** | _(completar)_ |
